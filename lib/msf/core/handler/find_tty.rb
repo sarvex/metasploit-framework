@@ -1,12 +1,11 @@
 # -*- coding: binary -*-
-require 'msf/core/handler/find_port'
 
 module Msf
 module Handler
 
 ###
 #
-# This handler expects a interactive TTY on the supplied socket/io object
+# This handler expects an interactive TTY on the supplied socket/io object
 #
 ###
 module FindTty

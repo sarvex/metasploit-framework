@@ -1,9 +1,8 @@
 # -*- coding: binary -*-
 #
 require 'spec_helper'
-require 'msf/core/auxiliary/kademlia'
 
-describe Msf::Auxiliary::Kademlia do
+RSpec.describe Msf::Auxiliary::Kademlia do
   subject(:kad) do
     mod = Module.new
     mod.extend described_class

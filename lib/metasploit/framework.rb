@@ -9,8 +9,7 @@ require 'active_support'
 require 'bcrypt'
 require 'json'
 require 'msgpack'
-require 'metasploit/concern'
-require 'metasploit/model'
+require 'metasploit/credential'
 require 'nokogiri'
 require 'packetfu'
 # railties has not autorequire defined
@@ -18,12 +17,11 @@ require 'packetfu'
 require 'rkelly'
 require 'robots'
 require 'zip'
-
+require 'msf'
 #
 # Project
 #
 
-require 'msf/core'
 
 # Top-level namespace that is shared between {Metasploit::Framework
 # metasploit-framework} and pro, which uses Metasploit::Pro.

@@ -1,9 +1,8 @@
 # -*- coding:binary -*-
 require 'spec_helper'
 
-require 'rex/proto/kerberos'
 
-describe Rex::Proto::Kerberos::Model::ApReq do
+RSpec.describe Rex::Proto::Kerberos::Model::ApReq do
 
   subject(:ap_req) do
     described_class.new
@@ -409,7 +408,7 @@ describe Rex::Proto::Kerberos::Model::ApReq do
       ticket = Rex::Proto::Kerberos::Model::Ticket.decode(ticket_der)
 
       authenticator = Rex::Proto::Kerberos::Model::EncryptedData.new(
-        etype: Rex::Proto::Kerberos::Crypto::RC4_HMAC,
+        etype: Rex::Proto::Kerberos::Crypto::Encryption::RC4_HMAC,
         cipher: cipher
       )
 

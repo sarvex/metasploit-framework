@@ -15,17 +15,9 @@ module Rex
         PROTOCOL_NOT_SUPPORTED = 0x4f
         RETURN_DATA            = 0x51
         PING_ACK               = 0x53
+        RETURN_VALUE           = 1
+        RETURN_EXCEPTION       = 2
       end
     end
   end
 end
-
-require 'rex/proto/rmi/model/element'
-require 'rex/proto/rmi/model/output_header'
-require 'rex/proto/rmi/model/protocol_ack'
-require 'rex/proto/rmi/model/continuation'
-require 'rex/proto/rmi/model/call'
-require 'rex/proto/rmi/model/return_data'
-require 'rex/proto/rmi/model/dgc_ack'
-require 'rex/proto/rmi/model/ping'
-require 'rex/proto/rmi/model/ping_ack'

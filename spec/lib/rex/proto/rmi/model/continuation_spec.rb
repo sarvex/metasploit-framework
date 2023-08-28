@@ -2,9 +2,8 @@
 require 'spec_helper'
 
 require 'stringio'
-require 'rex/proto/rmi'
 
-describe Rex::Proto::Rmi::Model::Continuation do
+RSpec.describe Rex::Proto::Rmi::Model::Continuation do
 
   subject(:continuation) do
     described_class.new

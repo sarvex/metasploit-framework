@@ -2,13 +2,12 @@
 # -*- coding: binary -*-
 
 #
-# This is a helper to a easy way to specify support platforms.  It will take a
+# This is a helper to an easy way to specify support platforms.  It will take a
 # list of strings or Msf::Module::Platform objects and build them into a list
 # of Msf::Module::Platform objects.  It also supports ranges based on relative
 # ranks...
 #
 
-require 'msf/core/module/platform'
 
 class Msf::Module::PlatformList
   attr_accessor :platforms
@@ -23,7 +22,7 @@ class Msf::Module::PlatformList
   #
   # Transformation method, just accept an array or a single entry.
   # This is just to make defining platform lists in a module more
-  # convenient, skape's a girl like that.
+  # convenient.
   #
   def self.transform(src)
     if (src.kind_of?(Array))

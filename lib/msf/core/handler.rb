@@ -1,5 +1,4 @@
 # -*- coding: binary -*-
-require 'msf/core'
 
 module Msf
 
@@ -76,6 +75,9 @@ module Handler
 
     # Initialize the pending_connections counter to 0
     self.pending_connections = 0
+
+    # Initialize the sessions counter to 0
+    self.sessions = 0
 
     # Create the waiter event with auto_reset set to false so that
     # if a session is ever created, waiting on it returns immediately.
@@ -160,6 +162,14 @@ module Handler
   end
 
   #
+  # Interrupts a wait_for_session call by notifying with a nil event
+  #
+  def interrupt_wait_for_session
+    return unless session_waiter_event
+    session_waiter_event.notify(nil)
+  end
+
+  #
   # Set by the exploit module to configure handler
   #
   attr_accessor :exploit_config
@@ -186,7 +196,21 @@ protected
     # If the payload we merged in with has an associated session factory,
     # allocate a new session.
     if (self.session)
-      s = self.session.new(conn, opts)
+      begin
+        # if there's a create_session method then use it, as this
+        # can form a factory for arb session types based on the
+        # payload.
+        if self.session.respond_to?('create_session')
+          s = self.session.create_session(conn, opts)
+        else
+          s = self.session.new(conn, opts)
+        end
+      rescue ::Exception => e
+        # We just wanna show and log the error, not trying to swallow it.
+        print_error("#{e.class} #{e.message}")
+        elog('Could not allocate a new Session.', error: e)
+        raise e
+      end
 
       # Pass along the framework context
       s.framework = framework
@@ -195,10 +219,38 @@ protected
       # and any relevant information
       s.set_from_exploit(assoc_exploit)
 
+      # set injected workspace value if db is active
+      if framework.db.active && wspace = framework.db.find_workspace(s.workspace)
+        framework.db.workspace = wspace
+      end
+
+      # Pass along any associated payload uuid if specified
+      if opts[:payload_uuid]
+        s.payload_uuid = opts[:payload_uuid]
+        s.payload_uuid.registered = false
+        if framework.db.active
+          payload_info = { uuid: s.payload_uuid.puid_hex, workspace: framework.db.workspace }
+          uuid_info = framework.db.payloads(payload_info).first
+        else
+          print_warning('Without a database connected that payload UUID tracking will not work!')
+        end
+        if s.payload_uuid.respond_to?(:puid_hex) && uuid_info
+          s.payload_uuid.registered = true
+          s.payload_uuid.name = uuid_info['name']
+          s.payload_uuid.timestamp = uuid_info['timestamp']
+        else
+          s.payload_uuid.registered = false
+        end
+      end
+
       # If the session is valid, register it with the framework and
       # notify any waiters we may have.
       if (s)
-        register_session(s)
+        # Defer the session registration to the Session Manager scheduler
+        registration = Proc.new do
+          register_session(s)
+        end
+        framework.sessions.schedule registration
       end
 
       return s
@@ -215,11 +267,27 @@ protected
     framework.sessions.register(session)
 
     # Call the handler's on_session() method
-    on_session(session)
+    if session.respond_to?(:bootstrap)
+      session.bootstrap(datastore, self)
+
+      return unless session.alive
+    end
 
     # Process the auto-run scripts for this session
-    if session.respond_to?('process_autoruns')
+    if session.respond_to?(:process_autoruns)
       session.process_autoruns(datastore)
+    end
+
+    # Tell the handler that we have a session
+    on_session(session)
+
+    # Notify the framework that we have a new session opening up...
+    # Don't let errant event handlers kill our session
+    begin
+      framework.events.on_session_open(session)
+    rescue ::Exception => e
+      wlog("Exception in on_session_open event handler: #{e.class}: #{e}")
+      wlog("Call Stack\n#{e.backtrace.join("\n")}")
     end
 
     # If there is an exploit associated with this payload, then let's notify
@@ -234,15 +302,15 @@ protected
     # Decrement the pending connections counter now that we've processed
     # one session.
     self.pending_connections -= 1
+
+    # Count the number of sessions we have registered
+    self.sessions += 1
   end
 
   attr_accessor :session_waiter_event # :nodoc:
   attr_accessor :pending_connections  # :nodoc:
+  attr_accessor :sessions # :nodoc:
 
 end
 
 end
-
-# The default none handler
-require 'msf/core/handler/none'
-

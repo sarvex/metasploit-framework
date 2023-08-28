@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-
-require 'msf/core'
-
-module Metasploit3
+module MetasploitModule
 
   CachedSize = 53
 
@@ -19,18 +16,18 @@ module Metasploit3
       'Author'        => 'nemo <nemo[at]felinemenace.org>',
       'License'       => MSF_LICENSE,
       'Platform'      => 'osx',
-      'Arch'          => ARCH_X86_64
+      'Arch'          => ARCH_X64
     ))
 
     # exec payload options
     register_options(
       [
         OptString.new('TEXT',  [ true,  "The text to say", "Hello\!"]),
-    ], self.class)
+    ])
   end
 
   # build the shellcode payload dynamically based on the user-provided CMD
-  def generate
+  def generate(_opts = {})
     say = (datastore['TEXT'] || '') << "\x00"
     call = "\xe8" + [say.length + 0xd].pack('V')
 

@@ -1,5 +1,4 @@
 # -*- coding: binary -*-
-require 'msf/core'
 
 module Msf
 
@@ -99,7 +98,7 @@ class Encoder < Module
     #
     NonAlpha = "non_alpha"
     #
-    # tolower safe ascii - not 'A' - 'Z' (more flexable than nonalpha)
+    # tolower safe ascii - not 'A' - 'Z' (more flexible than nonalpha)
     #
     NonUpper = "non_upper"
     #
@@ -136,9 +135,13 @@ class Encoder < Module
     #
     CmdUnixEcho = 'echo'
     #
-    # Bourne shell IFS encoding.
+    # Bourne shell ${IFS} encoding.
     #
-    CmdUnixIfs = 'ifs'
+    CmdUnixIFS = 'ifs'
+    #
+    # Bash brace expansion encoding.
+    #
+    CmdUnixBrace = 'brace'
   end
 
   #
@@ -537,7 +540,7 @@ protected
   #
   def find_context_key(buf, badchars, state)
     # Make sure our context information file is sane
-    if File.exists?(datastore['ContextInformationFile']) == false
+    if !File.exist?(datastore['ContextInformationFile'])
       raise NoKeyError, "A context information file must specified when using context encoding", caller
     end
 
@@ -674,10 +677,4 @@ protected
 end
 
 end
-
-require 'msf/core/encoder/xor'
-require 'msf/core/encoder/xor_additive_feedback'
-require 'msf/core/encoder/alphanum'
-require 'msf/core/encoder/nonalpha'
-require 'msf/core/encoder/nonupper'
 

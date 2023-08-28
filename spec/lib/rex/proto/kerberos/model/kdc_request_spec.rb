@@ -1,9 +1,8 @@
 # -*- coding:binary -*-
 require 'spec_helper'
 
-require 'rex/proto/kerberos'
 
-describe Rex::Proto::Kerberos::Model::KdcRequest do
+RSpec.describe Rex::Proto::Kerberos::Model::KdcRequest do
 
   subject(:kdc_request) do
     described_class.new

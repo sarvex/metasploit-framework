@@ -1,14 +1,10 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-require 'msf/core/handler/find_tag'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
-module Metasploit3
+module MetasploitModule
 
   CachedSize = 69
 
@@ -45,10 +41,9 @@ module Metasploit3
   #
   # Ensures the setting of TAG to a four byte value
   #
-  def generate
+  def generate(_opts = {})
     datastore['TAG'] = _find_tag
 
     super
   end
-
 end

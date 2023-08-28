@@ -14,9 +14,8 @@ require 'tmpdir'
 # Project
 #
 
-require 'msf/core'
 
-describe Msf::ModuleManager do
+RSpec.describe Msf::ModuleManager do
   include_context 'Msf::Simple::Framework'
 
   let(:basename_prefix) do

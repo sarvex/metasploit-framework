@@ -1,14 +1,9 @@
 # -*- coding: binary -*-
 require 'rex/socket'
-require 'rex/proto/http'
+
 require 'rex/text'
 require 'digest'
-require 'rex/proto/ntlm/crypt'
-require 'rex/proto/ntlm/constants'
-require 'rex/proto/ntlm/utils'
-require 'rex/proto/ntlm/exceptions'
 
-require 'rex/proto/http/client_request'
 
 module Rex
 module Proto
@@ -23,12 +18,12 @@ module Http
 ###
 class Client
 
-  DefaultUserAgent = ClientRequest::DefaultUserAgent
-
   #
   # Creates a new client instance
+  # @param http_trace_proc_request [Proc] A proc object passed to log HTTP requests if HTTP-Trace is set
+  # @param http_trace_proc_response [Proc] A proc object passed to log HTTP responses if HTTP-Trace is set
   #
-  def initialize(host, port = 80, context = {}, ssl = nil, ssl_version = nil, proxies = nil, username = '', password = '')
+  def initialize(host, port = 80, context = {}, ssl = nil, ssl_version = nil, proxies = nil, username = '', password = '', kerberos_authenticator: nil, comm: nil, subscriber: nil)
     self.hostname = host
     self.port     = port.to_i
     self.context  = context
@@ -37,16 +32,21 @@ class Client
     self.proxies  = proxies
     self.username = username
     self.password = password
-
+    self.kerberos_authenticator = kerberos_authenticator
+    self.comm = comm
+    self.subscriber = subscriber || HttpSubscriber.new
+    
     # Take ClientRequest's defaults, but override with our own
     self.config = Http::ClientRequest::DefaultConfig.merge({
       'read_max_data'   => (1024*1024*1),
       'vhost'           => self.hostname,
+      'ssl_server_name_indication' => self.hostname,
     })
+    self.config['agent'] ||= Rex::UserAgent.session_agent
 
     # XXX: This info should all be controlled by ClientRequest
     self.config_types = {
-      'uri_encode_mode'        => ['hex-normal', 'hex-all', 'hex-random', 'u-normal', 'u-random', 'u-all'],
+      'uri_encode_mode'        => ['hex-normal', 'hex-all', 'hex-random', 'hex-noslashes', 'u-normal', 'u-random', 'u-all'],
       'uri_encode_count'       => 'integer',
       'uri_full_url'           => 'bool',
       'pad_method_uri_count'   => 'integer',
@@ -58,7 +58,6 @@ class Client
       'method_random_case'     => 'bool',
       'version_random_valid'   => 'bool',
       'version_random_invalid' => 'bool',
-      'version_random_case'    => 'bool',
       'uri_dir_self_reference' => 'bool',
       'uri_dir_fake_relative'  => 'bool',
       'uri_use_backslashes'    => 'bool',
@@ -68,13 +67,14 @@ class Client
       'pad_get_params_count'   => 'integer',
       'pad_post_params'        => 'bool',
       'pad_post_params_count'  => 'integer',
+      'shuffle_get_params'     => 'bool',
+      'shuffle_post_params'    => 'bool',
       'uri_fake_end'           => 'bool',
       'uri_fake_params_start'  => 'bool',
       'header_folding'         => 'bool',
-      'chunked_size'           => 'integer'
+      'chunked_size'           => 'integer',
+      'partial'                => 'bool'
     }
-
-
   end
 
   #
@@ -97,7 +97,7 @@ class Client
       # config.
 
       if(typ == 'bool')
-        val = (val =~ /^(t|y|1)$/i ? true : false || val === true)
+        val = (val == true || val.to_s =~ /^(t|y|1)/i)
       end
 
       if(typ == 'integer')
@@ -121,50 +121,48 @@ class Client
   # @option opts 'method'        [String] HTTP method to use in the request, not limited to standard methods defined by rfc2616, default: GET
   # @option opts 'proto'         [String] protocol, default: HTTP
   # @option opts 'query'         [String] raw query string
-  # @option opts 'raw_headers'   [Hash]   HTTP headers
+  # @option opts 'raw_headers'   [String] Raw HTTP headers
   # @option opts 'uri'           [String] the URI to request
   # @option opts 'version'       [String] version of the protocol, default: 1.1
   # @option opts 'vhost'         [String] Host header value
   #
   # @return [ClientRequest]
-  def request_raw(opts={})
+  def request_raw(opts = {})
     opts = self.config.merge(opts)
 
-    opts['ssl']         = self.ssl
-    opts['cgi']         = false
-    opts['port']        = self.port
+    opts['cgi'] = false
+    opts['port'] = self.port
+    opts['ssl'] = self.ssl
 
-    req = ClientRequest.new(opts)
+    ClientRequest.new(opts)
   end
-
 
   #
   # Create a CGI compatible request
   #
   # @param (see #request_raw)
   # @option opts (see #request_raw)
-  # @option opts 'ctype'         [String] Content-Type header value, default: +application/x-www-form-urlencoded+
+  # @option opts 'ctype'         [String] Content-Type header value, default for POST requests: +application/x-www-form-urlencoded+
   # @option opts 'encode_params' [Bool]   URI encode the GET or POST variables (names and values), default: true
   # @option opts 'vars_get'      [Hash]   GET variables as a hash to be translated into a query string
   # @option opts 'vars_post'     [Hash]   POST variables as a hash to be translated into POST data
+  # @option opts 'vars_form_data'     [Hash]   POST form_data variables as a hash to be translated into multi-part POST form data
   #
   # @return [ClientRequest]
-  def request_cgi(opts={})
+  def request_cgi(opts = {})
     opts = self.config.merge(opts)
 
-    opts['ctype']       ||= 'application/x-www-form-urlencoded'
-    opts['ssl']         = self.ssl
-    opts['cgi']         = true
-    opts['port']        = self.port
+    opts['cgi'] = true
+    opts['port'] = self.port
+    opts['ssl'] = self.ssl
 
-    req = ClientRequest.new(opts)
-    req
+    ClientRequest.new(opts)
   end
 
   #
   # Connects to the remote server if possible.
   #
-  # @param t [Fixnum] Timeout
+  # @param t [Integer] Timeout
   # @see Rex::Socket::Tcp.create
   # @return [Rex::Socket::Tcp]
   def connect(t = -1)
@@ -180,7 +178,8 @@ class Client
     timeout = (t.nil? or t == -1) ? 0 : t
 
     self.conn = Rex::Socket::Tcp.create(
-      'PeerHost'   => self.hostname,
+      'PeerHost'    => self.hostname,
+      'PeerHostname' => self.config['ssl_server_name_indication'] || self.config['vhost'],
       'PeerPort'   => self.port.to_i,
       'LocalHost'  => self.local_host,
       'LocalPort'  => self.local_port,
@@ -188,7 +187,8 @@ class Client
       'SSL'        => self.ssl,
       'SSLVersion' => self.ssl_version,
       'Proxies'    => self.proxies,
-      'Timeout'    => timeout
+      'Timeout'    => timeout,
+      'Comm'       => self.comm
     )
   end
 
@@ -196,12 +196,13 @@ class Client
   # Closes the connection to the remote server.
   #
   def close
-    if (self.conn)
+    if self.conn && !self.conn.closed?
       self.conn.shutdown
-      self.conn.close unless self.conn.closed?
+      self.conn.close
     end
 
     self.conn = nil
+    self.ntlm_client = nil
   end
 
   #
@@ -211,8 +212,8 @@ class Client
   # authentication and return the final response
   #
   # @return (see #_send_recv)
-  def send_recv(req, t = -1, persist=false)
-    res = _send_recv(req,t,persist)
+  def send_recv(req, t = -1, persist = false)
+    res = _send_recv(req, t, persist)
     if res and res.code == 401 and res.headers['WWW-Authenticate']
       res = send_auth(res, req.opts, t, persist)
     end
@@ -229,11 +230,26 @@ class Client
   # authentication handling.
   #
   # @return (see #read_response)
-  def _send_recv(req, t = -1, persist=false)
+  def _send_recv(req, t = -1, persist = false)
     @pipeline = persist
+    subscriber.on_request(req)
+    if req.respond_to?(:opts) && req.opts['ntlm_transform_request'] && self.ntlm_client
+      req = req.opts['ntlm_transform_request'].call(self.ntlm_client, req)
+    elsif req.respond_to?(:opts) && req.opts['krb_transform_request'] && self.krb_encryptor
+      req = req.opts['krb_transform_request'].call(self.krb_encryptor, req)
+    end
+    
     send_request(req, t)
-    res = read_response(t)
+
+    res = read_response(t, :original_request => req)
+    if req.respond_to?(:opts) && req.opts['ntlm_transform_response'] && self.ntlm_client
+      req.opts['ntlm_transform_response'].call(self.ntlm_client, res)
+    elsif req.respond_to?(:opts) && req.opts['krb_transform_response'] && self.krb_encryptor
+      req = req.opts['krb_transform_response'].call(self.krb_encryptor, res)
+    end
     res.request = req.to_s if res
+    res.peerinfo = peerinfo if res
+    subscriber.on_response(res)
     res
   end
 
@@ -255,7 +271,7 @@ class Client
   #
   # @param res [Response] the HTTP Response object
   # @param opts [Hash] the options used to generate the original HTTP request
-  # @param t [Fixnum] the timeout for the request in seconds
+  # @param t [Integer] the timeout for the request in seconds
   # @param persist [Boolean] whether or not to persist the TCP connection (pipelining)
   #
   # @return [Response] the last valid HTTP response object we received
@@ -270,30 +286,45 @@ class Client
       end
     end
 
-    return res if opts['username'].nil? or opts['username'] == ''
+    if opts[:kerberos_authenticator].nil?
+      opts[:kerberos_authenticator] = self.kerberos_authenticator
+    end
+
+    return res if (opts['username'].nil? or opts['username'] == '') and opts[:kerberos_authenticator].nil?
     supported_auths = res.headers['WWW-Authenticate']
-    if supported_auths.include? 'Basic'
+
+    # if several providers are available, the client may want one in particular
+    preferred_auth = opts['preferred_auth']
+
+    if supported_auths.include?('Basic') && (preferred_auth.nil? || preferred_auth == 'Basic')
       opts['headers'] ||= {}
       opts['headers']['Authorization'] = basic_auth_header(opts['username'],opts['password'] )
       req = request_cgi(opts)
       res = _send_recv(req,t,persist)
       return res
-    elsif  supported_auths.include? "Digest"
+    elsif supported_auths.include?('Digest') && (preferred_auth.nil? || preferred_auth == 'Digest')
       temp_response = digest_auth(opts)
       if temp_response.kind_of? Rex::Proto::Http::Response
         res = temp_response
       end
       return res
-    elsif supported_auths.include? "NTLM"
+    elsif supported_auths.include?('NTLM') && (preferred_auth.nil? || preferred_auth == 'NTLM')
       opts['provider'] = 'NTLM'
       temp_response = negotiate_auth(opts)
       if temp_response.kind_of? Rex::Proto::Http::Response
         res = temp_response
       end
       return res
-    elsif supported_auths.include? "Negotiate"
+    elsif supported_auths.include?('Negotiate') && (preferred_auth.nil? || preferred_auth == 'Negotiate')
       opts['provider'] = 'Negotiate'
       temp_response = negotiate_auth(opts)
+      if temp_response.kind_of? Rex::Proto::Http::Response
+        res = temp_response
+      end
+      return res
+    elsif supported_auths.include?('Negotiate') && (preferred_auth.nil? || preferred_auth == 'Kerberos')
+      opts['provider'] = 'Negotiate'
+      temp_response = kerberos_auth(opts)
       if temp_response.kind_of? Rex::Proto::Http::Response
         res = temp_response
       end
@@ -311,13 +342,18 @@ class Client
     auth_str = "Basic " + Rex::Text.encode_base64(auth_str)
   end
 
+
+  def make_cnonce
+    Digest::MD5.hexdigest "%x" % (::Time.now.to_i + rand(65535))
+  end
+
   # Send a series of requests to complete Digest Authentication
   #
   # @param opts [Hash] the options used to build an HTTP request
-  #
   # @return [Response] the last valid HTTP response we received
   def digest_auth(opts={})
-    @nonce_count = 0
+    cnonce = make_cnonce
+    nonce_count = 0
 
     to = opts['timeout'] || 20
 
@@ -332,7 +368,7 @@ class Client
     end
 
     begin
-    @nonce_count += 1
+    nonce_count += 1
 
     resp = opts['response']
 
@@ -389,7 +425,7 @@ class Client
       [
         algorithm.hexdigest("#{digest_user}:#{parameters['realm']}:#{digest_password}"),
         parameters['nonce'],
-        @cnonce
+        cnonce
       ].join ':'
     else
       "#{digest_user}:#{parameters['realm']}:#{digest_password}"
@@ -399,7 +435,7 @@ class Client
     ha2 = algorithm.hexdigest("#{method}:#{path}")
 
     request_digest = [ha1, parameters['nonce']]
-    request_digest.push(('%08x' % @nonce_count), @cnonce, qop) if qop
+    request_digest.push(('%08x' % nonce_count), cnonce, qop) if qop
     request_digest << ha2
     request_digest = request_digest.join ':'
 
@@ -409,8 +445,8 @@ class Client
       "realm=\"#{parameters['realm']}\"",
       "nonce=\"#{parameters['nonce']}\"",
       "uri=\"#{path}\"",
-      "cnonce=\"#{@cnonce}\"",
-      "nc=#{'%08x' % @nonce_count}",
+      "cnonce=\"#{cnonce}\"",
+      "nc=#{'%08x' % nonce_count}",
       "algorithm=#{algstr}",
       "response=\"#{algorithm.hexdigest(request_digest)[0, 32]}\"",
       # The spec says the qop value shouldn't be enclosed in quotes, but
@@ -449,6 +485,53 @@ class Client
     end
   end
 
+  def kerberos_auth(opts={})
+    to = opts['timeout'] || 20
+    auth_result = self.kerberos_authenticator.authenticate(mechanism: Rex::Proto::Gss::Mechanism::KERBEROS)
+    gss_data = auth_result[:security_blob]
+    gss_data_b64 = Rex::Text.encode_base64(gss_data)
+
+    # Separate options for the auth requests
+    auth_opts = opts.clone
+    auth_opts['headers'] = opts['headers'].clone
+    auth_opts['headers']['Authorization'] = "Kerberos #{gss_data_b64}"
+
+    if auth_opts['no_body_for_auth']
+      auth_opts.delete('data')
+      auth_opts.delete('krb_transform_request')
+      auth_opts.delete('krb_transform_response')
+    end
+
+    begin
+      # Send the auth request
+      r = request_cgi(auth_opts)
+      resp = _send_recv(r, to)
+      unless resp.kind_of? Rex::Proto::Http::Response
+        return nil
+      end
+
+      # Get the challenge and craft the response
+      response = resp.headers['WWW-Authenticate'].scan(/Kerberos ([A-Z0-9\x2b\x2f=]+)/ni).flatten[0]
+      return resp unless response
+
+      decoded = Rex::Text.decode_base64(response)
+      mutual_auth_result = self.kerberos_authenticator.parse_gss_init_response(decoded, auth_result[:session_key], mechanism: 'kerberos')
+      self.krb_encryptor = self.kerberos_authenticator.get_message_encryptor(mutual_auth_result[:ap_rep_subkey], 
+                                                                                  auth_result[:client_sequence_number],
+                                                                                  mutual_auth_result[:server_sequence_number])
+
+      if opts['no_body_for_auth']
+        # If the body wasn't sent in the authentication, now do the actual request
+        r = request_cgi(opts)
+        resp = _send_recv(r, to, true)
+      end
+      return resp
+
+    rescue ::Errno::EPIPE, ::Timeout::Error
+      return nil
+    end
+  end
+
   #
   # Builds a series of requests to complete Negotiate Auth. Works essentially
   # the same way as Digest auth. Same pipelining concerns exist.
@@ -458,13 +541,6 @@ class Client
   #
   # @return [Response] the last valid HTTP response we received
   def negotiate_auth(opts={})
-    ntlm_options = {
-      :signing          => false,
-      :usentlm2_session => self.config['usentlm2_session'],
-      :use_ntlmv2       => self.config['use_ntlmv2'],
-      :send_lm          => self.config['send_lm'],
-      :send_ntlm        => self.config['send_ntlm']
-    }
 
     to = opts['timeout'] || 20
     opts['username'] ||= ''
@@ -473,29 +549,37 @@ class Client
     if opts['provider'] and opts['provider'].include? 'Negotiate'
       provider = "Negotiate "
     else
-      provider = 'NTLM '
+      provider = "NTLM "
     end
 
     opts['method']||= 'GET'
     opts['headers']||= {}
 
-    ntlmssp_flags = ::Rex::Proto::NTLM::Utils.make_ntlm_flags(ntlm_options)
     workstation_name = Rex::Text.rand_text_alpha(rand(8)+6)
     domain_name = self.config['domain']
 
-    b64_blob = Rex::Text::encode_base64(
-      ::Rex::Proto::NTLM::Utils::make_ntlmssp_blob_init(
-        domain_name,
-        workstation_name,
-        ntlmssp_flags
-    ))
-
-    ntlm_message_1 = provider + b64_blob
+    ntlm_client = ::Net::NTLM::Client.new(
+      opts['username'],
+      opts['password'],
+      workstation: workstation_name,
+      domain: domain_name,
+    )
+    type1 = ntlm_client.init_context
 
     begin
+      # Separate options for the auth requests
+      auth_opts = opts.clone
+      auth_opts['headers'] = opts['headers'].clone
+      auth_opts['headers']['Authorization'] = provider + type1.encode64
+
+      if auth_opts['no_body_for_auth']
+        auth_opts.delete('data')
+        auth_opts.delete('ntlm_transform_request')
+        auth_opts.delete('ntlm_transform_response')
+      end
+
       # First request to get the challenge
-      opts['headers']['Authorization'] = ntlm_message_1
-      r = request_cgi(opts)
+      r = request_cgi(auth_opts)
       resp = _send_recv(r, to)
       unless resp.kind_of? Rex::Proto::Http::Response
         return nil
@@ -507,51 +591,21 @@ class Client
       ntlm_challenge = resp.headers['WWW-Authenticate'].scan(/#{provider}([A-Z0-9\x2b\x2f=]+)/ni).flatten[0]
       return resp unless ntlm_challenge
 
-      ntlm_message_2 = Rex::Text::decode_base64(ntlm_challenge)
-      blob_data = ::Rex::Proto::NTLM::Utils.parse_ntlm_type_2_blob(ntlm_message_2)
+      ntlm_message_3 = ntlm_client.init_context(ntlm_challenge, channel_binding)
 
-      challenge_key        = blob_data[:challenge_key]
-      server_ntlmssp_flags = blob_data[:server_ntlmssp_flags]       #else should raise an error
-      default_name         = blob_data[:default_name]         || '' #netbios name
-      default_domain       = blob_data[:default_domain]       || '' #netbios domain
-      dns_host_name        = blob_data[:dns_host_name]        || '' #dns name
-      dns_domain_name      = blob_data[:dns_domain_name]      || '' #dns domain
-      chall_MsvAvTimestamp = blob_data[:chall_MsvAvTimestamp] || '' #Client time
-
-      spnopt = {:use_spn => self.config['SendSPN'], :name =>  self.hostname}
-
-      resp_lm, resp_ntlm, client_challenge, ntlm_cli_challenge = ::Rex::Proto::NTLM::Utils.create_lm_ntlm_responses(
-        opts['username'],
-        opts['password'],
-        challenge_key,
-        domain_name,
-        default_name,
-        default_domain,
-        dns_host_name,
-        dns_domain_name,
-        chall_MsvAvTimestamp,
-        spnopt,
-        ntlm_options
-      )
-
-      ntlm_message_3 = ::Rex::Proto::NTLM::Utils.make_ntlmssp_blob_auth(
-        domain_name,
-        workstation_name,
-        opts['username'],
-        resp_lm,
-        resp_ntlm,
-        '',
-        ntlmssp_flags
-      )
-
-      ntlm_message_3 = Rex::Text::encode_base64(ntlm_message_3)
-
+      self.ntlm_client = ntlm_client
       # Send the response
-      opts['headers']['Authorization'] = "#{provider}#{ntlm_message_3}"
-      r = request_cgi(opts)
+      auth_opts['headers']['Authorization'] = "#{provider}#{ntlm_message_3.encode64}"
+      r = request_cgi(auth_opts)
       resp = _send_recv(r, to, true)
+
       unless resp.kind_of? Rex::Proto::Http::Response
         return nil
+      end
+      if opts['no_body_for_auth']
+        # If the body wasn't sent in the authentication, now do the actual request
+        r = request_cgi(opts)
+        resp = _send_recv(r, to, true)
       end
       return resp
 
@@ -559,34 +613,48 @@ class Client
       return nil
     end
   end
-  #
+
+  def channel_binding
+    if !self.conn.respond_to?(:peer_cert) or self.conn.peer_cert.nil?
+      nil
+    else
+      Net::NTLM::ChannelBinding.create(OpenSSL::X509::Certificate.new(self.conn.peer_cert))
+    end
+  end
+
   # Read a response from the server
+  #
+  # Wait at most t seconds for the full response to be read in.
+  # If t is specified as a negative value, it indicates an indefinite wait cycle.
+  # If t is specified as nil or 0, it indicates no response parsing is required.
   #
   # @return [Response]
   def read_response(t = -1, opts = {})
+    # Return a nil response if timeout is nil or 0
+    return if t.nil? || t == 0
 
     resp = Response.new
     resp.max_data = config['read_max_data']
 
-    # Wait at most t seconds for the full response to be read in.  We only
-    # do this if t was specified as a negative value indicating an infinite
-    # wait cycle.  If t were specified as nil it would indicate that no
-    # response parsing is required.
-
-    return resp if not t
+    original_request = opts.fetch(:original_request) { nil }
+    parse_opts = {}
+    unless original_request.nil?
+      parse_opts = { :orig_method => original_request.opts['method'] }
+    end
 
     Timeout.timeout((t < 0) ? nil : t) do
 
       rv = nil
       while (
+               not conn.closed? and
                rv != Packet::ParseCode::Completed and
                rv != Packet::ParseCode::Error
               )
 
         begin
 
-          buff = conn.get_once(-1, 1)
-          rv   = resp.parse( buff || '' )
+          buff = conn.get_once(resp.max_data, 1)
+          rv   = resp.parse(buff || '', parse_opts)
 
         # Handle unexpected disconnects
         rescue ::Errno::EPIPE, ::EOFError, ::IOError
@@ -608,8 +676,8 @@ class Client
           rblob = rbody.to_s + rbufq.to_s
           tries = 0
           begin
-            # XXX: This doesn't deal with chunked encoding or "Content-type: text/html; charset=..."
-            while tries < 1000 and resp.headers["Content-Type"]== "text/html" and rblob !~ /<\/html>/i
+            # XXX: This doesn't deal with chunked encoding
+            while tries < 1000 and resp.headers["Content-Type"] and resp.headers["Content-Type"].start_with?('text/html') and rblob !~ /<\/html>/i
               buff = conn.get_once(-1, 0.05)
               break if not buff
               rblob += buff
@@ -635,7 +703,7 @@ class Client
         body = resp.body
         resp = Response.new
         resp.max_data = config['read_max_data']
-        rv = resp.parse(body)
+        rv = resp.parse(body, parse_opts)
       # We found a 100 Continue but didn't read the real reply yet
       # Otherwise reread the reply, but don't try this hack again
       else
@@ -644,6 +712,9 @@ class Client
     end
 
     resp
+  rescue Timeout::Error
+    # Allow partial response due to timeout
+    resp if config['partial']
   end
 
   #
@@ -667,6 +738,26 @@ class Client
     pipeline
   end
 
+  #
+  # Target host addr and port for this connection
+  #
+  def peerinfo
+    if self.conn
+      pi = self.conn.peerinfo || nil
+      if pi
+        return {
+          'addr' => pi.split(':')[0],
+          'port' => pi.split(':')[1].to_i
+        }
+      end
+    end
+    nil
+  end
+  
+  #
+  # An optional comm to use for creating the underlying socket.
+  #
+  attr_accessor :comm
   #
   # The client request configuration
   #
@@ -701,10 +792,13 @@ class Client
   attr_accessor :proxies
 
   # Auth
-  attr_accessor :username, :password
+  attr_accessor :username, :password, :kerberos_authenticator
 
   # When parsing the request, thunk off the first response from the server, since junk
   attr_accessor :junk_pipeline
+
+  # @return [Rex::Proto::Http::HttpSubscriber] The HTTP subscriber
+  attr_accessor :subscriber
 
 protected
 
@@ -713,7 +807,15 @@ protected
 
   attr_accessor :hostname, :port # :nodoc:
 
+  #
+  # The established NTLM connection info
+  #
+  attr_accessor :ntlm_client
 
+  #
+  # The established kerberos connection info
+  #
+  attr_accessor :krb_encryptor
 end
 
 end

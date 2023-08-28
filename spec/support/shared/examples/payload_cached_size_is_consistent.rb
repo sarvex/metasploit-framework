@@ -69,7 +69,8 @@
 # @option options [String] :reference_name The reference name for payload class that should be instantiated from mixing
 #   `:ancestor_reference_names`.
 # @return [void]
-shared_examples_for 'payload cached size is consistent' do |options|
+RSpec.shared_examples_for 'payload cached size is consistent' do |options|
+
   options.assert_valid_keys(:ancestor_reference_names, :modules_pathname, :reference_name, :dynamic_size)
 
   ancestor_reference_names = options.fetch(:ancestor_reference_names)
@@ -111,6 +112,8 @@ shared_examples_for 'payload cached size is consistent' do |options|
       )
     end
 
+    next if reference_name =~ /generic|peinject/
+
     if dynamic_size
       it 'is dynamic_size?' do
         pinst = load_and_create_module(
@@ -132,7 +135,9 @@ shared_examples_for 'payload cached size is consistent' do |options|
         )
         expect(pinst.cached_size).to_not(be_nil)
         expect(pinst.dynamic_size?).to be(false)
-        expect(pinst.cached_size).to eq(pinst.size)
+
+        module_options = Msf::Util::PayloadCachedSize.module_options(pinst)
+        expect(pinst.cached_size).to eq(pinst.generate_simple(module_options).size)
       end
     end
   end

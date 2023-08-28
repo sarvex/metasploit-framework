@@ -1,2 +1,3 @@
-# -*- coding: binary -*-
-require 'rex/payloads/meterpreter/patch'
+module Rex::Payloads::Meterpreter
+
+end

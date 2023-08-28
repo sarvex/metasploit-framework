@@ -1,16 +1,11 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
+module MetasploitModule
 
-require 'msf/core'
-require 'msf/core/handler/reverse_http'
-require 'msf/core/payload/windows/reverse_http'
-
-module Metasploit3
-
-  CachedSize = 306
+  CachedSize = 444
 
   include Msf::Payload::Stager
   include Msf::Payload::Windows
@@ -18,13 +13,13 @@ module Metasploit3
 
   def initialize(info = {})
     super(merge_info(info,
-      'Name'          => 'Reverse HTTP Stager',
-      'Description'   => 'Tunnel communication over HTTP',
-      'Author'        => 'hdm',
-      'License'       => MSF_LICENSE,
-      'Platform'      => 'win',
-      'Arch'          => ARCH_X86,
-      'Handler'       => Msf::Handler::ReverseHttp,
-      'Convention'    => 'sockedi http'))
+      'Name'        => 'Windows Reverse HTTP Stager (wininet)',
+      'Description' => 'Tunnel communication over HTTP (Windows wininet)',
+      'Author'      => 'hdm',
+      'License'     => MSF_LICENSE,
+      'Platform'    => 'win',
+      'Arch'        => ARCH_X86,
+      'Handler'     => Msf::Handler::ReverseHttp,
+      'Convention'  => 'sockedi http'))
   end
 end

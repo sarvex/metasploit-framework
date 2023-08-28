@@ -1,5 +1,5 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
@@ -12,9 +12,7 @@
 #
 ###
 
-require 'msf/core'
-
-module Metasploit3
+module MetasploitModule
 
   CachedSize = 393
 
@@ -45,6 +43,7 @@ module Metasploit3
       'Platform'      => 'win',
       'Arch'          => ARCH_X86,
       'Privileged'    => true,
+      'Notes'         => {'AKA' => ['ShellcodeOfDeath']}
       ))
 
     # EXITFUNC is not supported
@@ -54,10 +53,10 @@ module Metasploit3
     register_options(
       [
         OptString.new('VOLUMELABEL', [ false, "Set the volume label", "PwNeD" ])
-      ], self.class)
+      ])
   end
 
-  def generate
+  def generate(_opts = {})
 
     volume_label   = datastore['VOLUMELABEL'] || ""
     encoded_volume_label = volume_label.to_s.unpack("C*").pack("v*")

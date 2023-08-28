@@ -6,8 +6,6 @@ module Windows
 
 module CliParse
 
-  require 'msf/windows_error'
-  require 'rex/logging'
   require 'rex/exceptions'
 
   #Msf::Post::Windows::CliParse::ParseError
@@ -86,7 +84,7 @@ module CliParse
         # NOTE:  this will NOT pickup the (NOT_STOPPABLE, NOT_PAUSABLE), see next, but it
         # 	 will pickup when there's multiple dependencies
         arr = line.scan(/\w+/)
-        val = arr.join(',') # join with commas, tho there is probably only one item in arr
+        val = arr.join(',') # join with commas, though there is probably only one item in arr
         hashish[lastkey] << ",#{val}" # append to old val with preceding ','
         # if that's confusing, maybe:  hashish[lastkey] = "#{hashish[lastkey]},#{val}"
         tip = false

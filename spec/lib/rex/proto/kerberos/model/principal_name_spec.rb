@@ -1,9 +1,8 @@
 # -*- coding:binary -*-
 require 'spec_helper'
 
-require 'rex/proto/kerberos'
 
-describe Rex::Proto::Kerberos::Model::PrincipalName do
+RSpec.describe Rex::Proto::Kerberos::Model::PrincipalName do
 
   subject(:principal_name) do
     described_class.new

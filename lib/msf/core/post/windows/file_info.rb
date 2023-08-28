@@ -5,6 +5,22 @@ module Windows
 
 module FileInfo
 
+  def initialize(info = {})
+    super(
+      update_info(
+        info,
+        'Compat' => {
+          'Meterpreter' => {
+            'Commands' => %w[
+              stdapi_railgun_api
+              stdapi_railgun_memread
+            ]
+          }
+        }
+      )
+    )
+  end
+
   def hiword(num)
     (num >> 16) & 0xffff
   end
@@ -13,11 +29,21 @@ module FileInfo
     num & 0xffff
   end
 
+  # Returns the file version information such as: major, minor, build, revision, branch.
+  #
+  # @param filepath [String] The path of the file you are targeting.
+  # @return [String] Returns the file version information of the file.
+
   def file_version(filepath)
     file_version_info_size = client.railgun.version.GetFileVersionInfoSizeA(
       filepath,
       nil
     )['return']
+
+    if file_version_info_size == 0
+      # Indicates an error - should not continue
+      return nil
+    end
 
     buffer = session.railgun.kernel32.VirtualAlloc(
       nil,

@@ -24,7 +24,7 @@
 #     )
 #   }
 #
-shared_context 'Msf::Simple::Framework#modules loading' do
+RSpec.shared_context 'Msf::Simple::Framework#modules loading' do
   include_context 'Metasploit::Framework::Spec::Constants cleaner'
   include_context 'Msf::Simple::Framework'
 
@@ -154,6 +154,7 @@ shared_context 'Msf::Simple::Framework#modules loading' do
     )
 
     module_set = module_set_for_type(module_type)
+    module_set.recalculate
 
     module_instance = module_set.create(reference_name)
     expect(module_instance).not_to(

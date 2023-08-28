@@ -2,10 +2,9 @@
 require 'spec_helper'
 
 require 'stringio'
-require 'rex/proto/rmi'
 require 'rex/java'
 
-describe Rex::Proto::Rmi::Model::ReturnData do
+RSpec.describe Rex::Proto::Rmi::Model::ReturnData do
 
   subject(:return_data) do
     described_class.new
@@ -46,7 +45,7 @@ describe Rex::Proto::Rmi::Model::ReturnData do
 
     it "decodes the return data correctly" do
       return_data.decode(return_stream_io)
-      expect(return_data.return_value).to be_a(Rex::Java::Serialization::Model::Stream)
+      expect(return_data.return_value).to be_a(Rex::Proto::Rmi::Model::ReturnValue)
     end
   end
 

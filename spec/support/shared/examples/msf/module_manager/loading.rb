@@ -1,4 +1,92 @@
-shared_examples_for 'Msf::ModuleManager::Loading' do
+RSpec.shared_examples_for 'Msf::ModuleManager::Loading' do
+  let(:parent_path) do
+    Metasploit::Framework.root.join('modules')
+  end
+
+  let(:module_basename) do
+    [basename_prefix, '.rb']
+  end
+
+  context '#load_error_by_name' do
+    it 'should return errors associated with that module' do
+      Tempfile.open(module_basename) do |tempfile|
+        module_path = tempfile.path
+        modification_time = File.mtime(module_path).to_i
+        name = 'auxiliary/mock_dir/mock_dir/mock_file'
+
+        subject.send(:module_info_by_path)[module_path] = {
+            reference_name: 'mock_dir/mock_dir/mock_file',
+            type: 'auxiliary',
+            parent_path: parent_path,
+            modification_time: modification_time
+        }
+        subject.send(:module_load_error_by_path)[module_path] = 'mock error'
+
+        subject.load_error_by_name(name)
+        expect(subject.load_error_by_name(name)).to(eql 'mock error')
+      end
+    end
+
+    it 'should return errors associated with that module, even without a prefixed module type' do
+      Tempfile.open(module_basename) do |tempfile|
+        module_path = tempfile.path
+        modification_time = File.mtime(module_path).to_i
+        name = 'mock_dir/mock_dir/mock_file'
+
+        subject.send(:module_info_by_path)[module_path] = {
+            reference_name: 'mock_dir/mock_dir/mock_file',
+            type: 'auxiliary',
+            parent_path: parent_path,
+            modification_time: modification_time
+        }
+        subject.send(:module_load_error_by_path)[module_path] = 'mock error'
+
+        subject.load_error_by_name(name)
+        expect(subject.load_error_by_name(name)).to(eql 'mock error')
+      end
+    end
+
+    it 'should recognise we are passing a module alias and return errors associated with that aliased module' do
+      Tempfile.open(module_basename) do |tempfile|
+        module_path = tempfile.path
+        modification_time = File.mtime(module_path).to_i
+        name = 'auxiliary/mock_dir/mock_dir/mock_file'
+
+        subject.send(:module_info_by_path)[module_path] = {
+            reference_name: 'mock_dir/mock_dir/mock_file',
+            type: 'auxiliary',
+            parent_path: parent_path,
+            modification_time: modification_time
+        }
+
+        subject.send(:module_load_error_by_path)[module_path] = 'mock error'
+        subject.send(:aliases)['auxiliary/mock_dir/mock_dir/mock_file_alias'] = 'auxiliary/mock_dir/mock_dir/mock_file'
+        subject.send(:inv_aliases)['auxiliary/mock_dir/mock_dir/mock_file'] = 'auxiliary/mock_dir/mock_dir/mock_file_alias'
+
+        subject.load_error_by_name(name)
+        expect(subject.load_error_by_name(name)).to(eql 'mock error')
+      end
+    end
+
+    it 'should return nil as this module will have no associated errors' do
+      Tempfile.open(module_basename) do |tempfile|
+        module_path = tempfile.path
+        modification_time = File.mtime(module_path).to_i
+        name = 'auxiliary/mock_dir/mock_dir/mock_file'
+
+        subject.send(:module_info_by_path)[module_path] = {
+            reference_name: 'mock_dir/mock_dir/mock_file',
+            type: 'auxiliary',
+            parent_path: parent_path,
+            modification_time: modification_time
+        }
+
+        subject.load_error_by_name(name)
+        expect(subject.load_error_by_name(name)).to(eql nil)
+      end
+    end
+  end
+
   context '#file_changed?' do
     let(:module_basename) do
       [basename_prefix, '.rb']
@@ -8,8 +96,8 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
       Tempfile.open(module_basename) do |tempfile|
         module_path = tempfile.path
 
-        subject.send(:module_info_by_path)[module_path].should be_nil
-        subject.file_changed?(module_path).should be_truthy
+        expect(subject.send(:module_info_by_path)[module_path]).to be_nil
+        expect(subject.file_changed?(module_path)).to be_truthy
       end
     end
 
@@ -25,7 +113,7 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
             :type => Msf::MODULE_PAYLOAD
         }
 
-        subject.file_changed?(module_path).should be_truthy
+        expect(subject.file_changed?(module_path)).to be_truthy
       end
     end
 
@@ -41,8 +129,8 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
 
         tempfile.unlink
 
-        File.exist?(module_path).should be_falsey
-        subject.file_changed?(module_path).should be_truthy
+        expect(File.exist?(module_path)).to be_falsey
+        expect(subject.file_changed?(module_path)).to be_truthy
       end
 
       it 'should return true if modification time does not match the cached modification time' do
@@ -55,8 +143,8 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
               :modification_time => cached_modification_time
           }
 
-          cached_modification_time.should_not == modification_time
-          subject.file_changed?(module_path).should be_truthy
+          expect(cached_modification_time).not_to eq modification_time
+          expect(subject.file_changed?(module_path)).to be_truthy
         end
       end
 
@@ -70,8 +158,8 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
               :modification_time => cached_modification_time
           }
 
-          cached_modification_time.should == modification_time
-          subject.file_changed?(module_path).should be_falsey
+          expect(cached_modification_time).to eq modification_time
+          expect(subject.file_changed?(module_path)).to be_falsey
         end
       end
     end
@@ -106,10 +194,6 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
       }
     end
 
-    let(:parent_path) do
-      Metasploit::Framework.root.join('modules')
-    end
-
     let(:path) do
       type_directory = Mdm::Module::Detail::DIRECTORY_BY_TYPE[type]
 
@@ -124,12 +208,12 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
       klass.type
     end
 
-    before(:each) do
-      klass.stub(:parent => namespace_module)
+    before(:example) do
+      allow(klass).to receive(:module_parent).and_return(namespace_module)
     end
 
     it "should add module to type's module_set" do
-      module_set.should_receive(:add_module).with(
+      expect(module_set).to receive(:add_module).with(
           klass,
           reference_name,
           options
@@ -139,19 +223,19 @@ shared_examples_for 'Msf::ModuleManager::Loading' do
     end
 
     it 'should call cache_in_memory' do
-      module_manager.should_receive(:cache_in_memory)
+      expect(module_manager).to receive(:cache_in_memory)
 
       on_module_load
     end
 
     it 'should pass class to #auto_subscribe_module' do
-      module_manager.should_receive(:auto_subscribe_module).with(klass)
+      expect(module_manager).to receive(:auto_subscribe_module).with(klass)
 
       on_module_load
     end
 
     it 'should fire on_module_load event with class' do
-      framework.events.should_receive(:on_module_load).with(
+      expect(framework.events).to receive(:on_module_load).with(
           reference_name,
           klass
       )

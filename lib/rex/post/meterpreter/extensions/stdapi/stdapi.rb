@@ -4,9 +4,11 @@ require 'rex/post/meterpreter/object_aliases'
 require 'rex/post/meterpreter/extension'
 require 'rex/post/meterpreter/extensions/stdapi/constants'
 require 'rex/post/meterpreter/extensions/stdapi/tlv'
+require 'rex/post/meterpreter/extensions/stdapi/command_ids'
 require 'rex/post/meterpreter/extensions/stdapi/fs/dir'
 require 'rex/post/meterpreter/extensions/stdapi/fs/file'
 require 'rex/post/meterpreter/extensions/stdapi/fs/file_stat'
+require 'rex/post/meterpreter/extensions/stdapi/fs/mount'
 require 'rex/post/meterpreter/extensions/stdapi/net/resolve'
 require 'rex/post/meterpreter/extensions/stdapi/net/config'
 require 'rex/post/meterpreter/extensions/stdapi/net/socket'
@@ -18,6 +20,8 @@ require 'rex/post/meterpreter/extensions/stdapi/sys/power'
 require 'rex/post/meterpreter/extensions/stdapi/railgun/railgun'
 require 'rex/post/meterpreter/extensions/stdapi/ui'
 require 'rex/post/meterpreter/extensions/stdapi/webcam/webcam'
+require 'rex/post/meterpreter/extensions/stdapi/mic/mic'
+require 'rex/post/meterpreter/extensions/stdapi/audio_output/audio_output'
 
 module Rex
 module Post
@@ -33,6 +37,10 @@ module Stdapi
 #
 ###
 class Stdapi < Extension
+
+  def self.extension_id
+    EXTENSION_ID_STDAPI
+  end
 
   #
   # Initializes an instance of the standard API extension.
@@ -50,7 +58,8 @@ class Stdapi < Extension
             {
               'dir'      => self.dir,
               'file'     => self.file,
-              'filestat' => self.filestat
+              'filestat' => self.filestat,
+              'mount'    => Fs::Mount.new(client)
             })
         },
         {
@@ -80,6 +89,14 @@ class Stdapi < Extension
         {
           'name' => 'webcam',
           'ext'  => Rex::Post::Meterpreter::Extensions::Stdapi::Webcam::Webcam.new(client)
+        },
+        {
+          'name' => 'mic',
+          'ext'  => Rex::Post::Meterpreter::Extensions::Stdapi::Mic::Mic.new(client)
+        },
+        {
+          'name' => 'audio_output',
+          'ext'  => Rex::Post::Meterpreter::Extensions::Stdapi::AudioOutput::AudioOutput.new(client)
         },
         {
           'name' => 'ui',

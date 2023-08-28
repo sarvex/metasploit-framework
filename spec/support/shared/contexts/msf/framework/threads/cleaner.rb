@@ -1,10 +1,10 @@
-shared_context 'Msf::Framework#threads cleaner' do
-  after(:each) do |example|
-    unless framework.threads?
+RSpec.shared_context 'Msf::Framework#threads cleaner' do |options = {}|
+  after(:example) do |example|
+    if options.fetch(:verify_cleanup_required, true) && !framework.threads?
       fail RuntimeError.new(
                "framework.threads was never initialized. There are no threads to clean up. " \
                "Remove `include_context Msf::Framework#threads cleaner` from context around " \
-               "'#{example.metadata.full_description}'"
+               "'#{example.metadata[:full_description]}'"
            )
     end
 

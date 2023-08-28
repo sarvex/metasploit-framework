@@ -3,9 +3,10 @@ require 'metasploit/framework/login_scanner/http'
 module Metasploit
   module Framework
     module LoginScanner
-
       # Jenkins login scanner
       class Jenkins < HTTP
+
+        include Msf::Exploit::Remote::HTTP::Jenkins
 
         # Inherit LIKELY_PORTS,LIKELY_SERVICE_NAMES, and REALM_KEY from HTTP
         CAN_GET_SESSION = true
@@ -16,6 +17,10 @@ module Metasploit
         def set_sane_defaults
           self.uri = "/j_acegi_security_check" if self.uri.nil?
           self.method = "POST" if self.method.nil?
+
+          if self.uri[0] != '/'
+            self.uri = "/#{self.uri}"
+          end
 
           super
         end
@@ -32,27 +37,17 @@ module Metasploit
           else
             result_opts[:service_name] = 'http'
           end
-          begin
-            cli = Rex::Proto::Http::Client.new(host, port, {'Msf' => framework, 'MsfExploit' => framework_module}, ssl, ssl_version, proxies)
-            configure_http_client(cli)
-            cli.connect
-            req = cli.request_cgi({
-              'method'=>'POST',
-              'uri'=>'/j_acegi_security_check',
-              'vars_post'=> {
-                'j_username' => credential.public,
-                'j_password'=>credential.private
-                }
+
+          status, proof = jenkins_login(credential.public, credential.private) do |request|
+            send_request({
+              'method' => method,
+              'uri' => uri,
+              'vars_post' => request['vars_post']
             })
-            res = cli.send_recv(req)
-            if res && !res.headers['location'].include?('loginError')
-              result_opts.merge!(status: Metasploit::Model::Login::Status::SUCCESSFUL, proof: res.headers)
-            else
-              result_opts.merge!(status: Metasploit::Model::Login::Status::INCORRECT, proof: res)
-            end
-          rescue ::EOFError, Errno::ETIMEDOUT, Rex::ConnectionError, ::Timeout::Error => e
-            result_opts.merge!(status: Metasploit::Model::Login::Status::UNABLE_TO_CONNECT, proof: e)
           end
+
+          result_opts.merge!(status: status, proof: proof)
+
           Result.new(result_opts)
         end
       end

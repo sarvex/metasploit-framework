@@ -16,10 +16,12 @@ module Msf::DBManager::Import
   autoload :Acunetix, 'msf/core/db_manager/import/acunetix'
   autoload :Amap, 'msf/core/db_manager/import/amap'
   autoload :Appscan, 'msf/core/db_manager/import/appscan'
-  autoload :Burp, 'msf/core/db_manager/import/burp'
+  autoload :BurpIssue, 'msf/core/db_manager/import/burp_issue'
+  autoload :BurpSession, 'msf/core/db_manager/import/burp_session'
   autoload :CI, 'msf/core/db_manager/import/ci'
   autoload :Foundstone, 'msf/core/db_manager/import/foundstone'
   autoload :FusionVM, 'msf/core/db_manager/import/fusion_vm'
+  autoload :GPP, 'msf/core/db_manager/import/gpp'
   autoload :IP360, 'msf/core/db_manager/import/ip360'
   autoload :IPList, 'msf/core/db_manager/import/ip_list'
   autoload :Libpcap, 'msf/core/db_manager/import/libpcap'
@@ -30,6 +32,7 @@ module Msf::DBManager::Import
   autoload :Nexpose, 'msf/core/db_manager/import/nexpose'
   autoload :Nikto, 'msf/core/db_manager/import/nikto'
   autoload :Nmap, 'msf/core/db_manager/import/nmap'
+  autoload :Nuclei, 'msf/core/db_manager/import/nuclei'
   autoload :OpenVAS, 'msf/core/db_manager/import/open_vas'
   autoload :Outpost24, 'msf/core/db_manager/import/outpost24'
   autoload :Qualys, 'msf/core/db_manager/import/qualys'
@@ -41,10 +44,12 @@ module Msf::DBManager::Import
   include Msf::DBManager::Import::Acunetix
   include Msf::DBManager::Import::Amap
   include Msf::DBManager::Import::Appscan
-  include Msf::DBManager::Import::Burp
+  include Msf::DBManager::Import::BurpIssue
+  include Msf::DBManager::Import::BurpSession
   include Msf::DBManager::Import::CI
   include Msf::DBManager::Import::Foundstone
   include Msf::DBManager::Import::FusionVM
+  include Msf::DBManager::Import::GPP
   include Msf::DBManager::Import::IP360
   include Msf::DBManager::Import::IPList
   include Msf::DBManager::Import::Libpcap
@@ -55,6 +60,7 @@ module Msf::DBManager::Import
   include Msf::DBManager::Import::Nexpose
   include Msf::DBManager::Import::Nikto
   include Msf::DBManager::Import::Nmap
+  include Msf::DBManager::Import::Nuclei
   include Msf::DBManager::Import::OpenVAS
   include Msf::DBManager::Import::Outpost24
   include Msf::DBManager::Import::Qualys
@@ -83,10 +89,91 @@ module Msf::DBManager::Import
   # import_file_detect will raise an error if the filetype
   # is unknown.
   def import(args={}, &block)
+    wspace = Msf::Util::DBManager.process_opts_workspace(args, framework)
+    preserve_hosts = args[:task].options["DS_PRESERVE_HOSTS"] if args[:task].present? && args[:task].options.present?
+    wspace.update_attribute(:import_fingerprint, true)
+    existing_host_ids = wspace.hosts.map(&:id)
     data = args[:data] || args['data']
     ftype = import_filetype_detect(data)
     yield(:filetype, @import_filedata[:type]) if block
-    self.send "import_#{ftype}".to_sym, args, &block
+    # this code looks to intentionally convert workspace to a string, why?
+    opts = args.clone()
+    opts.delete(:workspace)
+    result = self.send "import_#{ftype}".to_sym, opts.merge(workspace: wspace.name), &block
+
+    # post process the import here for missing default port maps
+    mrefs, mports, _mservs = Msf::Modules::Metadata::Cache.instance.all_exploit_maps
+    # the map build above is a little expensive, another option is to do
+    # a host by ref search for each vuln ref and then check port reported for each module
+    # IMHO this front loaded cost here is worth it with only a small number of modules
+    # compared to the vast number of possible references offered by a Vulnerability scanner.
+    deferred_service_ports = [ 139 ] # I hate special cases, however 139 is no longer a preferred default
+
+    if result.is_a?(Rex::Parser::ParsedResult)
+      new_host_ids = result.host_ids
+    else
+      new_host_ids = Mdm::Host.where(workspace: wspace).map(&:id) - existing_host_ids
+    end
+
+    new_host_ids.each do |id|
+      imported_host = Mdm::Host.where(id: id).first
+      next if imported_host.vulns.nil? || imported_host.vulns.empty?
+      # get all vulns with ports
+      with_ports = []
+      imported_host.vulns.each do |vuln|
+        next if vuln.service.nil?
+        with_ports << vuln.name
+      end
+
+      imported_host.vulns.each do |vuln|
+        # now get default ports for vulns where service is nil
+        next unless vuln.service.nil?
+        next if with_ports.include?(vuln.name)
+        serv = nil
+
+        # Module names that match this vulnerability
+        matched_vulns = Set.new(mrefs.values_at(*vuln.refs.map { |x| x.name.upcase }).compact.flatten(1))
+        next if matched_vulns.empty?
+
+        second_pass_services = []
+
+        imported_host.services.each do |service|
+          if deferred_service_ports.include?(service.port)
+            second_pass_services << service
+            next
+          end
+          next unless mports[service.port]
+          if (matched_vulns - mports[service.port]).size < matched_vulns.size
+            serv = service
+            break
+          end
+        end
+
+        # post process any deferred services if no match has been found
+        if serv.nil? && !second_pass_services.empty?
+          second_pass_services.each do |service|
+            next unless mports[service.port]
+            if (matched_vulns - mports[service.port]).size < matched_vulns.size
+              serv = service
+              break
+            end
+          end
+        end
+
+        next if serv.nil?
+        vuln.service = serv
+        vuln.save
+
+      end
+    end
+    if preserve_hosts || result.is_a?(Rex::Parser::ParsedResult)
+      new_host_ids.each do |id|
+        Mdm::Host.where(id: id).first.normalize_os
+      end
+    else
+      Mdm::Host.where(workspace: wspace).each(&:normalize_os)
+    end
+    wspace.update_attribute(:import_fingerprint, false)
   end
 
   #
@@ -96,7 +183,7 @@ module Msf::DBManager::Import
   #
   def import_file(args={}, &block)
     filename = args[:filename] || args['filename']
-    wspace = args[:wspace] || args['wspace'] || workspace
+    wspace = Msf::Util::DBManager.process_opts_workspace(args, framework)
     @import_filedata            = {}
     @import_filedata[:filename] = filename
 
@@ -129,11 +216,16 @@ module Msf::DBManager::Import
       end
     end
 
+    # Override REXML's expansion text limit to 50k (default: 10240 bytes)
+    REXML::Security.entity_expansion_text_limit = 51200
 
+    # this code looks to intentionally convert workspace to a string, why?
+    opts = args.clone()
+    opts.delete(:workspace)
     if block
-      import(args.merge(:data => data)) { |type,data| yield type,data }
+      import(opts.merge(data: data, workspace: wspace.name)) { |type,data| yield type,data }
     else
-      import(args.merge(:data => data))
+      import(opts.merge(data: data, workspace: wspace.name))
     end
   end
 
@@ -147,6 +239,7 @@ module Msf::DBManager::Import
   # :ci_xml
   # :foundstone_xml
   # :fusionvm_xml
+  # :gpp_xml
   # :ip360_aspl_xml
   # :ip360_xml_v3
   # :ip_list
@@ -225,7 +318,7 @@ module Msf::DBManager::Import
     end
 
     # This is a text string, lets make sure its treated as binary
-    data = data.unpack("C*").pack("C*")
+    data.force_encoding(::Encoding::ASCII_8BIT)
     if data and data.to_s.strip.length == 0
       raise Msf::DBImportError.new("The data provided to the import function was empty")
     end
@@ -250,6 +343,9 @@ module Msf::DBManager::Import
     elsif (firstline.index("<scanJob>"))
       @import_filedata[:type] = "Retina XML"
       return :retina_xml
+    elsif (firstline.index(/<get_results_response status=['"]200['"] status_text=['"]OK['"]>/))
+      @import_filedata[:type] = "OpenVAS XML"
+      return :openvas_new_xml
     elsif (firstline.index(/<get_reports_response status=['"]200['"] status_text=['"]OK['"]>/))
       @import_filedata[:type] = "OpenVAS XML"
       return :openvas_new_xml
@@ -259,12 +355,21 @@ module Msf::DBManager::Import
     elsif (firstline.index("<NessusClientData>"))
       @import_filedata[:type] = "Nessus XML (v1)"
       return :nessus_xml
+    elsif firstline.starts_with?('{"template":')
+      @import_filedata[:type] = "Nuclei JSONL"
+      return :nuclei_jsonl
+    elsif firstline.starts_with?('[{"template":')
+      @import_filedata[:type] = "Nuclei JSON"
+      return :nuclei_json
     elsif (firstline.index("<SecScan ID="))
       @import_filedata[:type] = "Microsoft Baseline Security Analyzer"
       return :mbsa_xml
     elsif (data[0,1024] =~ /<!ATTLIST\s+items\s+burpVersion/)
       @import_filedata[:type] = "Burp Session XML"
       return :burp_session_xml
+    elsif (data[0,1024] =~ /<!ATTLIST\s+issues\s+burpVersion/)
+      @import_filedata[:type] = "Burp Issue XML"
+      return :burp_issue_xml
     elsif (firstline.index("<?xml"))
       # it's xml, check for root tags we can handle
       line_count = 0
@@ -276,10 +381,14 @@ module Msf::DBManager::Import
           @import_filedata[:type] = "Nikto XML"
           return :nikto_xml
         when "nmaprun"
-          @import_filedata[:type] = "Nmap XML"
+          if line.start_with?('<nmaprun scanner="masscan"')
+            @import_filedata[:type] = "Masscan XML"
+          else
+            @import_filedata[:type] = "Nmap XML"
+          end
           return :nmap_xml
         when "openvas-report"
-          @import_filedata[:type] = "OpenVAS Report"
+          @import_filedata[:type] = "OpenVAS"
           return :openvas_xml
         when "NessusClientData"
           @import_filedata[:type] = "Nessus XML (v1)"
@@ -317,6 +426,9 @@ module Msf::DBManager::Import
         when /ReportInfo/
           @import_filedata[:type] = "Foundstone"
           return :foundstone_xml
+        when /scanJob/
+          @import_filedata[:type] = "Retina XML"
+          return :retina_xml
         when /ScanGroup/
           @import_filedata[:type] = "Acunetix"
           return :acunetix_xml
@@ -331,6 +443,9 @@ module Msf::DBManager::Import
         when "main"
           @import_filedata[:type] = "Outpost24 XML"
           return :outpost24_xml
+        when /Groups|DataSources|Drives|ScheduledTasks|NTServices/
+          @import_filedata[:type] = "Group Policy Preferences Credentials"
+          return :gpp_xml
         else
           # Give up if we haven't hit the root tag in the first few lines
           break if line_count > 10

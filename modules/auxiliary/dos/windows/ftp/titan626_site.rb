@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::Ftp
   include Msf::Auxiliary::Dos
 
@@ -26,12 +23,12 @@ class Metasploit3 < Msf::Auxiliary
           [ 'OSVDB', '49177'],
           [ 'EDB', '6753']
         ],
-      'DisclosureDate' => 'Oct 14 2008'))
+      'DisclosureDate' => '2008-10-14'))
 
     # They're required
     register_options([
-      OptString.new('FTPUSER', [ true, 'Valid FTP username', 'anonymous' ]),
-      OptString.new('FTPPASS', [ true, 'Valid FTP password for username', 'anonymous' ])
+      OptString.new('FTPUSER', [ true, 'Valid FTP username', 'anonymous' ], fallbacks: ['USERNAME']),
+      OptString.new('FTPPASS', [ true, 'Valid FTP password for username', 'anonymous' ], fallbacks: ['PASSWORD'])
     ])
   end
 

@@ -1,13 +1,10 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-require 'msf/base/sessions/command_shell'
-require 'msf/base/sessions/command_shell_options'
 
-module Metasploit3
+module MetasploitModule
 
   CachedSize = :dynamic
 
@@ -40,10 +37,10 @@ module Metasploit3
         OptBool.new('INCLUDECMD', [ true, "Include the cmd /q /c", false ]),
         OptBool.new('INCLUDEWSCRIPT', [ true, "Include the wscript command", false ]),
         OptBool.new('DELETE', [ true, "Delete created .vbs after download", false ])
-      ], self.class)
+      ])
   end
 
-  def generate
+  def generate(_opts = {})
     return super + command_string
   end
 

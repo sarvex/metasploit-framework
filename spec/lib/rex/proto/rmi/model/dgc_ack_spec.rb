@@ -2,9 +2,8 @@
 require 'spec_helper'
 
 require 'stringio'
-require 'rex/proto/rmi'
 
-describe Rex::Proto::Rmi::Model::DgcAck do
+RSpec.describe Rex::Proto::Rmi::Model::DgcAck do
 
   subject(:dgc_ack) do
     described_class.new

@@ -1,4 +1,9 @@
 ##
+# This module requires Metasploit: https://metasploit.com/download
+# Current source: https://github.com/rapid7/metasploit-framework
+##
+
+##
 # Author: Robin Wood <robin@digininja.org> <http://www.digininja.org>
 # Version: 0.1
 #
@@ -7,16 +12,7 @@
 #
 ##
 
-##
-# This module requires Metasploit: http://metasploit.com/download
-# Current source: https://github.com/rapid7/metasploit-framework
-##
-
-require 'msf/core'
-
-
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::MSSQL
 
   def initialize(info = {})
@@ -26,26 +22,20 @@ class Metasploit3 < Msf::Auxiliary
         This module will search the specified MSSQL server for
         'interesting' columns and data.
 
-        The module has been tested against SQL Server 2005 but it should also work on
-        SQL Server 2008. The module will not work against SQL Server 2000 at this time,
-        if you are interested in supporting this platform, please contact the author.
+        This module has been tested against the latest SQL Server 2019 docker container image (22/04/2021).
       },
       'Author'         => [ 'Robin Wood <robin[at]digininja.org>' ],
       'License'        => MSF_LICENSE,
       'References'     =>
         [
           [ 'URL', 'http://www.digininja.org/metasploit/mssql_idf.php' ],
-        ],
-      'Targets'        =>
-        [
-          [ 'MSSQL 2005', { 'ver' => 2005 }	],
         ]
     ))
 
     register_options(
       [
         OptString.new('NAMES', [ true, 'Pipe separated list of column names',  'passw|bank|credit|card']),
-      ], self.class)
+      ])
   end
 
   def print_with_underline(str)
@@ -95,13 +85,32 @@ class Metasploit3 < Msf::Auxiliary
     sql += "CLOSE table_cursor "
     sql += "DEALLOCATE table_cursor "
 
+    begin
+      if mssql_login_datastore
+        result = mssql_query(sql, false)
+      else
+        print_error('Login failed')
+        return
+      end
+    rescue Rex::ConnectionRefused => e
+      print_error("Connection failed: #{e}")
+      return
+    end
 
-    # Add error handling here
-    result = mssql_query(sql, false) if mssql_login_datastore
     column_data = result[:rows]
-
     widths = [0, 0, 0, 0, 0, 9]
     total_width = 0
+
+    if result[:errors] && !result[:errors].empty?
+      result[:errors].each do |err|
+        print_error(err)
+      end
+    end
+
+    if column_data.nil?
+      print_error("No columns matched the pattern #{datastore['NAMES'].inspect}. Set the NAMES option to change this search pattern.")
+      return
+    end
 
     (column_data|headings).each { |row|
       0.upto(4) { |col|
@@ -113,7 +122,7 @@ class Metasploit3 < Msf::Auxiliary
       total_width += a
     }
 
-    print_line("")
+    print_line
 
     buffer = ""
     headings.each { |row|
@@ -121,17 +130,16 @@ class Metasploit3 < Msf::Auxiliary
         buffer += row[col].ljust(widths[col] + 1)
       }
       print_line(buffer)
-      print_line("")
+      print_line
       buffer = ""
 
       0.upto(5) { |col|
         buffer += print "=" * widths[col] + " "
       }
       print_line(buffer)
-      print_line("")
+      print_line
     }
 
-    table_data_sql = {}
     column_data.each { |row|
       count_sql = "SELECT COUNT(*) AS count FROM "
 
@@ -153,73 +161,10 @@ class Metasploit3 < Msf::Auxiliary
 
       buffer += row_count.to_s
       print_line(buffer)
-      print_line("")
-
-#			if row_count == 0
-#				data_sql = nil
-#				table_data_sql[full_table + "." + column_name] = nil
-#			elsif row_count < 4
-#				data_sql = "SELECT * from " + full_table
-#				table_data_sql[full_table + "." + column_name] = data_sql
-#			else
-#				data_sql = "SELECT TOP 3 * from " + full_table
-#
-#				# or this will get top, middle and last rows
-#
-#				data_sql = "
-#							with tmp as (select *,ROW_NUMBER() over (order by " + column_name + ") as rownumber from " + full_table + " )
-#								select * from tmp where rownumber between 1 and 1;
-#							with tmp as (select *,ROW_NUMBER() over (order by " + column_name + ") as rownumber from " + full_table + " )
-#								select * from tmp where rownumber between " + (row_count / 2).to_s + " and " + (row_count / 2).to_s + ";
-#							with tmp as (select *,ROW_NUMBER() over (order by " + column_name + ") as rownumber from " + full_table + " )
-#								select * from tmp where rownumber between " + row_count.to_s + " and " + row_count.to_s + ";
-#						"
-#				table_data_sql[full_table + "." + column_name] = data_sql
-#			end
+      print_line
     }
 
-    print_line("")
-
-    # The code from this point on is for dumping out some sample data however the MSSQL parser isn't working
-    # correctly so the output is messed up. I'll finish implementing this once the bug is fixed.
-
-#		print_line("")
-#		print_with_underline("Sample Data")
-#		print_line("")
-#		table_data_sql.each_pair { |table, sql|
-#			if !sql.nil?
-#				print_with_underline table
-#				result = mssql_query(sql, true) if mssql_login_datastore
-#				#print_line result.inspect
-#				result[:colnames].each { |row|
-#					print row.ljust(20)
-#				}
-#			end
-#		}
-#
-#			if !data_sql.nil?
-#				result = mssql_query(data_sql, false) if mssql_login_datastore
-#	#			print_line "INSPECT"
-#	#			print_line result.keys.inspect
-#	#			print_line result[:colnames].inspect
-#		result[:colnames].each { |row|
-#			print row.ljust(20)
-#		}
-#		print_line("")
-#		result[:colnames].each { |row|
-#			print "=" * 20 + " "
-#		}
-#		print_line("")
-#
-#				if !result[:rows].nil?
-##				print_line data_sql
-#					result[:rows].each { |acol|
-#						acol.each { |aval|
-#				#			print_line aval
-#						}
-#					}
-#				end
-#			end
+    print_line
     disconnect
   end
 end

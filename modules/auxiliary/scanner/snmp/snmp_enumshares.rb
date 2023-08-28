@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::SNMPClient
   include Msf::Auxiliary::Report
   include Msf::Auxiliary::Scanner
@@ -52,6 +49,8 @@ class Metasploit3 < Msf::Auxiliary
         )
       end
 
+    rescue SNMP::ParseError
+      print_error("#{ip} Encountered an SNMP parsing error while trying to enumerate the host.")
     rescue ::Rex::ConnectionError, ::SNMP::RequestTimeout, ::SNMP::UnsupportedVersion
     rescue ::Interrupt
       raise $!
@@ -62,5 +61,4 @@ class Metasploit3 < Msf::Auxiliary
     end
 
   end
-
 end

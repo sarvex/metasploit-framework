@@ -2,9 +2,8 @@
 require 'spec_helper'
 
 require 'stringio'
-require 'rex/proto/rmi'
 
-describe Rex::Proto::Rmi::Model::Ping do
+RSpec.describe Rex::Proto::Rmi::Model::Ping do
 
   subject(:ping) do
     described_class.new

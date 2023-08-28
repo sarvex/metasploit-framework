@@ -1,13 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-
-require 'msf/core'
-
-
-module Metasploit3
+module MetasploitModule
 
   CachedSize = 16
 
@@ -27,7 +23,7 @@ module Metasploit3
       'Arch'          => ARCH_ARMLE))
   end
 
-  def generate
+  def generate(_opts = {})
     [
       0xe1a00820, #  mov r0, r0, lsr #16
       0xe51ff004, #  ldr pc, [pc, #-4]
@@ -35,5 +31,4 @@ module Metasploit3
       0x03ea4444  #  Parameter: 0x03ea
     ].pack("V*")
   end
-
 end

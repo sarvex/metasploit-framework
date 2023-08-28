@@ -36,12 +36,12 @@
 # @param options [Hash{Symbol => Pathname}]
 # @option options [Pathname] :modules_pathname Pathname of `modules` directory underwhich payloads are defined on the
 #   file system.
-shared_context 'untested payloads' do |options={}|
+RSpec.shared_context 'untested payloads' do |options={}|
   options.assert_valid_keys(:modules_pathname)
 
   modules_pathname = options.fetch(:modules_pathname)
 
-  before(:all) do
+  before(:context) do
     @expected_ancestor_reference_name_set = Set.new
     @actual_ancestor_reference_name_set = Set.new
 
@@ -56,23 +56,9 @@ shared_context 'untested payloads' do |options={}|
     end
   end
 
-  after(:all) do
+  after(:context) do
     missing_ancestor_reference_name_set = @expected_ancestor_reference_name_set - @actual_ancestor_reference_name_set
 
-    untested_payloads_pathname = Pathname.new('log/untested-payloads.log')
-
-    if missing_ancestor_reference_name_set.empty?
-      if untested_payloads_pathname.exist?
-        untested_payloads_pathname.delete
-      end
-    else
-      untested_payloads_pathname.open('w') do |f|
-        missing_ancestor_reference_name_set.sort.each do |missing_ancestor_reference_name|
-          f.puts missing_ancestor_reference_name
-        end
-      end
-
-      $stderr.puts "Some payloads are untested.  See log/untested-payload.log for details."
-    end
+    expect(missing_ancestor_reference_name_set).to be_empty, "Some payloads are untested: #{missing_ancestor_reference_name_set.join(', ')}. Please update `modules/payloads_spec.rb` with the payload definitions"
   end
 end

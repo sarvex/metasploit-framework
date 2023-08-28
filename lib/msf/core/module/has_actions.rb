@@ -1,5 +1,4 @@
 # -*- coding: binary -*-
-require 'msf/core/module/auxiliary_action'
 
 module Msf::Module::HasActions
   def initialize(info={})
@@ -23,7 +22,7 @@ module Msf::Module::HasActions
   def find_action(name)
     return nil if not name
     actions.each do |a|
-      return a if a.name == name
+      return a if a.name.downcase == name.downcase
     end
     return nil
   end

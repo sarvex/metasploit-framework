@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::Tcp
   include Msf::Auxiliary::Scanner
   include Msf::Auxiliary::Report
@@ -22,7 +19,7 @@ class Metasploit3 < Msf::Auxiliary
         [
           [ 'CVE', '2012-0002' ],
           [ 'MSB', 'MS12-020' ],
-          [ 'URL', 'http://technet.microsoft.com/en-us/security/bulletin/ms12-020' ],
+          [ 'URL', 'https://docs.microsoft.com/en-us/security-updates/SecurityBulletins/2012/ms12-020' ],
           [ 'EDB', '18606' ],
           [ 'URL', 'https://svn.nmap.org/nmap/scripts/rdp-vuln-ms12-020.nse' ]
         ],
@@ -36,13 +33,13 @@ class Metasploit3 < Msf::Auxiliary
 
     register_options(
       [
-        OptInt.new('RPORT', [ true, 'Remote port running RDP', '3389' ])
-      ], self.class)
+        OptPort.new('RPORT', [ true, 'Remote port running RDP', 3389 ])
+      ])
   end
 
   def check_rdp
     # code to check if RDP is open or not
-    vprint_status("#{peer} Verifying RDP protocol...")
+    vprint_status("Verifying RDP protocol...")
 
     # send connection
     sock.put(connection_request)
@@ -124,14 +121,11 @@ class Metasploit3 < Msf::Auxiliary
     "\x02\xf0\x80\x38"
   end
 
-  def peer
-    "#{rhost}:#{rport}"
-  end
 
   def check_rdp_vuln
     # check if rdp is open
     unless check_rdp
-      vprint_status "#{peer} Could not connect to RDP."
+      vprint_status "Could not connect to RDP."
       return Exploit::CheckCode::Unknown
     end
 
@@ -160,8 +154,8 @@ class Metasploit3 < Msf::Auxiliary
       # send ChannelRequestTwo - prevent BSoD
       sock.put(channel_request << [user2, chan2].pack("nn"))
 
-      return Exploit::CheckCode::Vulnerable
       report_goods
+      return Exploit::CheckCode::Vulnerable
     else
       return Exploit::CheckCode::Safe
     end
@@ -182,7 +176,7 @@ class Metasploit3 < Msf::Auxiliary
       bt = e.backtrace.join("\n")
       vprint_error("Unexpected error: #{e.message}")
       vprint_line(bt)
-      elog("#{e.message}\n#{bt}")
+      elog(e)
     ensure
       disconnect
     end
@@ -199,5 +193,4 @@ class Metasploit3 < Msf::Auxiliary
       print_status("#{ip}:#{rport} - #{status[1]}")
     end
   end
-
 end

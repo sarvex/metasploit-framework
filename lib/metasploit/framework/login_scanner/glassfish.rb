@@ -14,16 +14,25 @@ module Metasploit
 
         # @!attribute [r] version
         #   @return [String] Glassfish version
-        attr_reader :version
+        attr_accessor :version
 
         # @!attribute jsession
         #   @return [String] Cookie session
         attr_accessor :jsession
 
+        # @!attribute http_username
+        attr_accessor :http_username
+        #   @return [String] HTTP username
+
+        # @!attribute http_password
+        attr_accessor :http_password
+
         # (see Base#check_setup)
         def check_setup
           begin
-            res = send_request({'uri' => '/common/index.jsf'})
+            res = send_request({
+              'uri' => '/common/index.jsf',
+            })
             return "Connection failed" if res.nil?
             if !([200, 302].include?(res.code))
               return "Unexpected HTTP response code #{res.code} (is this really Glassfish?)"
@@ -33,7 +42,10 @@ module Metasploit
             # same port.
             if !self.ssl && res.headers['Location'] =~ /^https:/
               self.ssl = true
-              res = send_request({'uri' => '/common/index.jsf'})
+              res = send_request({
+                'uri' => '/common/index.jsf',
+                'cgi' => false
+              })
               if res.nil?
                 return "Connection failed after SSL redirection"
               end
@@ -42,14 +54,17 @@ module Metasploit
               end
             end
 
-            res = send_request({'uri' => '/login.jsf'})
+            res = send_request({
+              'uri' => '/login.jsf',
+              'cgi' => false
+            })
             return "Connection failed" if res.nil?
             extract_version(res.headers['Server'])
 
             if @version.nil? || @version !~ /^[2349]/
               return "Unsupported version ('#{@version}')"
             end
-          rescue ::EOFError, Errno::ETIMEDOUT, Rex::ConnectionError, ::Timeout::Error
+          rescue ::EOFError, Errno::ETIMEDOUT, OpenSSL::SSL::SSLError, Rex::ConnectionError, ::Timeout::Error
             return "Unable to connect to target"
           end
 
@@ -61,11 +76,7 @@ module Metasploit
         # @param (see Rex::Proto::Http::Resquest#request_raw)
         # @return [Rex::Proto::Http::Response] The HTTP response
         def send_request(opts)
-          cli = Rex::Proto::Http::Client.new(host, port, {'Msf' => framework, 'MsfExploit' => framework_module}, ssl, ssl_version, proxies)
-          configure_http_client(cli)
-          cli.connect
-          req = cli.request_raw(opts)
-          res = cli.send_recv(req)
+          res = super(opts)
 
           # Found a cookie? Set it. We're going to need it.
           if res && res.get_cookies =~ /JSESSIONID=(\w*);/i
@@ -103,7 +114,8 @@ module Metasploit
             'headers' => {
               'Content-Type'   => 'application/x-www-form-urlencoded',
               'Cookie'         => "JSESSIONID=#{self.jsession}",
-            }
+            },
+            'cgi' => false
           }
 
           send_request(opts)
@@ -124,13 +136,31 @@ module Metasploit
               'method'  => 'GET',
               'headers' => {
                 'Cookie'  => "JSESSIONID=#{self.jsession}"
-              }
+              },
+              'cgi' => false
             }
             res = send_request(opts)
             p = /<title>Deploy Enterprise Applications\/Modules/
             if (res && res.code.to_i == 200 && res.body.match(p) != nil)
               return {:status => Metasploit::Model::Login::Status::SUCCESSFUL, :proof => res.body}
             end
+          end
+
+          {:status => Metasploit::Model::Login::Status::INCORRECT, :proof => res.body}
+        end
+
+
+        # Tries to login to Glassfish version 9
+        #
+        # @param credential [Metasploit::Framework::Credential] The credential object
+        # @return [Hash]
+        #   * :status [Metasploit::Model::Login::Status]
+        #   * :proof [String] the HTTP response body
+        def try_glassfish_9(credential)
+          res = try_login(credential)
+
+          if res && res.code.to_i == 302 && res.headers['Location'].to_s !~ /loginError\.jsf$/
+            return {:status => Metasploit::Model::Login::Status::SUCCESSFUL, :proof => res.body}
           end
 
           {:status => Metasploit::Model::Login::Status::INCORRECT, :proof => res.body}
@@ -149,7 +179,8 @@ module Metasploit
               'method'  => 'GET',
               'headers' => {
                 'Cookie'  => "JSESSIONID=#{self.jsession}"
-              }
+              },
+              'cgi' => false
             }
             res = send_request(opts)
 
@@ -176,22 +207,25 @@ module Metasploit
 
           begin
             case self.version
-            when /^[29]\.x$/
+            when /^2\.x$/
               status = try_glassfish_2(credential)
               result_opts.merge!(status)
             when /^[34]\./
               status = try_glassfish_3(credential)
               result_opts.merge!(status)
+            when /^9\.x$/
+              status = try_glassfish_9(credential)
+              result_opts.merge!(status)
             end
-          rescue ::EOFError, Rex::ConnectionError, ::Timeout::Error => e
+          rescue ::EOFError, Errno::ECONNRESET, Rex::ConnectionError, OpenSSL::SSL::SSLError, ::Timeout::Error => e
             result_opts.merge!(status: Metasploit::Model::Login::Status::UNABLE_TO_CONNECT, proof: e)
           end
 
           Result.new(result_opts)
         end
 
-        #
-        # Extract the target's glassfish version from the HTTP Server header
+
+        # Extract the target's glassfish version from the HTTP Server Sun Java System Application Server 9.1header
         # (ex: Sun Java System Application Server 9.x)
         #
         # @param banner [String] `Server` header from a Glassfish service response

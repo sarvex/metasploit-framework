@@ -1,4 +1,4 @@
-require 'rex/proto/http'
+
 require 'metasploit/framework/login_scanner/base'
 require 'metasploit/framework/login_scanner/rex_socket'
 
@@ -15,6 +15,7 @@ module Metasploit
         DEFAULT_REALM        = nil
         DEFAULT_PORT         = 80
         DEFAULT_SSL_PORT     = 443
+        DEFAULT_HTTP_SUCCESS_CODES = [ 200, 201 ].append(*(300..309))
         LIKELY_PORTS         = [ 80, 443, 8000, 8080 ]
         LIKELY_SERVICE_NAMES = [ 'http', 'https' ]
         PRIVATE_TYPES        = [ :password ]
@@ -46,11 +47,11 @@ module Metasploit
         attr_accessor :evade_uri_full_url
 
         # @!attribute evade_pad_method_uri_count
-        #   @return [Fixnum] How many whitespace characters to use between the method and uri
+        #   @return [Integer] How many whitespace characters to use between the method and uri
         attr_accessor :evade_pad_method_uri_count
 
         # @!attribute evade_pad_uri_version_count
-        #   @return [Fixnum] How many whitespace characters to use between the uri and version
+        #   @return [Integer] How many whitespace characters to use between the uri and version
         attr_accessor :evade_pad_uri_version_count
 
         # @!attribute evade_pad_method_uri_type
@@ -73,6 +74,14 @@ module Metasploit
         #   @return [Boolean] Whether to use random casing for the HTTP method
         attr_accessor :evade_method_random_case
 
+        # @!attribute evade_version_random_valid
+        #   @return [Boolean] Whether to use a random, but valid, HTTP version for request
+        attr_accessor :evade_version_random_valid
+
+        # @!attribute evade_version_random_invalid
+        #   @return [Boolean] Whether to use a random invalid, HTTP version for request
+        attr_accessor :evade_version_random_invalid
+
         # @!attribute evade_uri_dir_self_reference
         #   @return [Boolean] Whether to insert self-referential directories into the uri
         attr_accessor :evade_uri_dir_self_reference
@@ -90,7 +99,7 @@ module Metasploit
         attr_accessor :evade_pad_fake_headers
 
         # @!attribute evade_pad_fake_headers_count
-        #   @return [Fixnum] How many fake headers to insert into the HTTP request
+        #   @return [Integer] How many fake headers to insert into the HTTP request
         attr_accessor :evade_pad_fake_headers_count
 
         # @!attribute evade_pad_get_params
@@ -98,7 +107,7 @@ module Metasploit
         attr_accessor :evade_pad_get_params
 
         # @!attribute evade_pad_get_params_count
-        #   @return [Fixnum] How many fake query string variables to insert into the request
+        #   @return [Integer] How many fake query string variables to insert into the request
         attr_accessor :evade_pad_get_params_count
 
         # @!attribute evade_pad_post_params
@@ -106,8 +115,16 @@ module Metasploit
         attr_accessor :evade_pad_post_params
 
         # @!attribute evade_pad_post_params_count
-        #   @return [Fixnum] How many fake post variables to insert into the request
+        #   @return [Integer] How many fake post variables to insert into the request
         attr_accessor :evade_pad_post_params_count
+
+        # @!attribute evade_shuffle_get_params
+        #   @return [Boolean] Randomize order of GET parameters
+        attr_accessor :evade_shuffle_get_params
+
+        # @!attribute evade_shuffle_post_params
+        #   @return [Boolean] Randomize order of POST parameters
+        attr_accessor :evade_shuffle_post_params
 
         # @!attribute evade_uri_fake_end
         #   @return [Boolean] Whether to add a fake end of URI (eg: /%20HTTP/1.0/../../)
@@ -153,6 +170,27 @@ module Metasploit
         #   @return [Boolean] Whether to conform to IIS digest authentication mode.
         attr_accessor :digest_auth_iis
 
+        # @!attribute http_username
+        # @return [String]
+        attr_accessor :http_username
+
+        # @!attribute http_password
+        # @return [String]
+        attr_accessor :http_password
+
+        # @!attribute kerberos_authenticator_factory
+        # @return [Func<username, password, realm> : Msf::Exploit::Remote::Kerberos::ServiceAuthenticator::HTTP] A factory method for creating a kerberos authenticator
+        attr_accessor :kerberos_authenticator_factory
+
+        # @!attribute keep_connection_alive
+        # @return [Boolean] Whether to keep the connection open after a successful login
+        attr_accessor :keep_connection_alive
+
+        # @!attribute http_success_codes
+        # @return [Array][Int] list of valid http response codes
+        attr_accessor :http_success_codes
+
+        validate :validate_http_codes
 
         validates :uri, presence: true, length: { minimum: 1 }
 
@@ -163,7 +201,7 @@ module Metasploit
         # (see Base#check_setup)
         def check_setup
           http_client = Rex::Proto::Http::Client.new(
-            host, port, {'Msf' => framework, 'MsfExploit' => framework_module}, ssl, ssl_version, proxies
+            host, port, {'Msf' => framework, 'MsfExploit' => framework_module}, ssl, ssl_version, proxies, http_username, http_password
           )
           request = http_client.request_cgi(
             'uri' => uri,
@@ -174,8 +212,8 @@ module Metasploit
             # Use _send_recv instead of send_recv to skip automatic
             # authentication
             response = http_client._send_recv(request)
-          rescue ::EOFError, Errno::ETIMEDOUT, Rex::ConnectionError, ::Timeout::Error
-            error_message = "Unable to connect to target"
+          rescue ::EOFError, Errno::ETIMEDOUT, OpenSSL::SSL::SSLError, Rex::ConnectionError, ::Timeout::Error
+            return "Unable to connect to target"
           end
 
           if !(response && response.code == 401 && response.headers['WWW-Authenticate'])
@@ -187,13 +225,53 @@ module Metasploit
           error_message
         end
 
+        # Sends a HTTP request with Rex
+        #
+        # @param [Hash] opts native support includes the following (also see Rex::Proto::Http::Request#request_cgi)
+        # @option opts [String] 'host' The remote host
+        # @option opts [Integer] 'port' The remote port
+        # @option opts [Boolean] 'ssl' The SSL setting, TrueClass or FalseClass
+        # @option opts [String]  'proxies' The proxies setting
+        # @option opts [Credential] 'credential' A credential object
+        # @option opts [Rex::Proto::Http::Client] 'http_client' object that can be used by the function
+        # @option opts ['Hash'] 'context' A context
+        # @raise [Rex::ConnectionError] One of these errors has occured: EOFError, Errno::ETIMEDOUT, Rex::ConnectionError, ::Timeout::Error
+        # @return [Rex::Proto::Http::Response] The HTTP response
+        # @return [NilClass] An error has occured while reading the response (see #Rex::Proto::Http::Client#read_response)
+        def send_request(opts)
+          close_client = !opts.key?(:http_client)
+          cli = opts.fetch(:http_client) { create_client(opts) }
+
+          begin
+            cli.connect
+            req = cli.request_cgi(opts)
+
+            # Authenticate by default
+            res = if opts['authenticate'].nil? || opts['authenticate']
+                    cli.send_recv(req)
+                  else
+                    cli._send_recv(req)
+                  end
+          rescue ::EOFError, Errno::ETIMEDOUT ,Errno::ECONNRESET, Rex::ConnectionError, OpenSSL::SSL::SSLError, ::Timeout::Error => e
+            raise Rex::ConnectionError, e.message
+          ensure
+            # If we didn't create the client, don't close it
+            if close_client
+              cli.close
+            end
+          end
+
+          res
+        end
+
+
         # Attempt a single login with a single credential against the target.
         #
         # @param credential [Credential] The credential object to attempt to
         #   login with.
+        #
         # @return [Result] A Result object indicating success or failure
         def attempt_login(credential)
-
           result_opts = {
             credential: credential,
             status: Metasploit::Model::Login::Status::INCORRECT,
@@ -209,38 +287,74 @@ module Metasploit
             result_opts[:service_name] = 'http'
           end
 
-          http_client = Rex::Proto::Http::Client.new(
-            host, port, {'Msf' => framework, 'MsfExploit' => framework_module}, ssl, ssl_version,
-            proxies, credential.public, credential.private
-          )
-
-          configure_http_client(http_client)
-
-          if credential.realm
-            http_client.set_config('domain' => credential.realm)
+          request_opts = {'credential'=>credential, 'uri'=>uri, 'method'=>method}
+          if keep_connection_alive
+            request_opts[:http_client] = create_client(request_opts)
           end
 
           begin
-            http_client.connect
-            request = http_client.request_cgi(
-              'uri' => uri,
-              'method' => method
-            )
-
-            response = http_client.send_recv(request)
-            if response && response.code == 200
+            response = send_request(request_opts)
+            if response && http_success_codes.include?(response.code)
               result_opts.merge!(status: Metasploit::Model::Login::Status::SUCCESSFUL, proof: response.headers)
             end
-          rescue ::EOFError, Errno::ETIMEDOUT, Rex::ConnectionError, ::Timeout::Error => e
+          rescue Rex::ConnectionError => e
             result_opts.merge!(status: Metasploit::Model::Login::Status::UNABLE_TO_CONNECT, proof: e)
+          rescue ::Rex::Proto::Kerberos::Model::Error::KerberosError => e
+            mapped_err = Metasploit::Framework::LoginScanner::Kerberos.login_status_for_kerberos_error(e)
+            result_opts.merge!(status: mapped_err, proof: e)
           ensure
-            http_client.close
+            if request_opts.key?(:http_client)
+              if result_opts[:status] == Metasploit::Model::Login::Status::SUCCESSFUL
+                result_opts[:connection] = request_opts[:http_client]
+              else
+                request_opts[:http_client].close
+              end
+            end
           end
 
           Result.new(result_opts)
         end
 
         private
+
+        def create_client(opts)
+          rhost           = opts['host'] || host
+          rport           = opts['rport'] || port
+          cli_ssl         = opts['ssl'] || ssl
+          cli_ssl_version = opts['ssl_version'] || ssl_version
+          cli_proxies     = opts['proxies'] || proxies
+          username        = opts['credential'] ? opts['credential'].public : http_username
+          password        = opts['credential'] ? opts['credential'].private : http_password
+          realm           = opts['credential'] ? opts['credential'].realm : nil
+          context         = opts['context'] || { 'Msf' => framework, 'MsfExploit' => framework_module}
+
+          kerberos_authenticator = nil
+          if kerberos_authenticator_factory
+            kerberos_authenticator = kerberos_authenticator_factory.call(username, password, realm)
+          end
+
+          http_logger_subscriber = framework_module.nil? ? nil : Rex::Proto::Http::HttpLoggerSubscriber.new(logger: framework_module)
+          res = nil
+          cli = Rex::Proto::Http::Client.new(
+            rhost,
+            rport,
+            context,
+            cli_ssl,
+            cli_ssl_version,
+            cli_proxies,
+            username,
+            password,
+            kerberos_authenticator: kerberos_authenticator,
+            subscriber: http_logger_subscriber
+          )
+          configure_http_client(cli)
+
+          if realm
+            cli.set_config('domain' => realm)
+          end
+
+          cli
+        end
 
         # This method is responsible for mapping the caller's datastore options to the
         # Rex::Proto::Http::Client configuration parameters.
@@ -260,6 +374,8 @@ module Metasploit
             'method_random_valid'    => evade_method_random_valid,
             'method_random_invalid'  => evade_method_random_invalid,
             'method_random_case'     => evade_method_random_case,
+            'version_random_valid'   => evade_version_random_valid,
+            'version_random_invalid' => evade_version_random_invalid,
             'uri_dir_self_reference' => evade_uri_dir_self_reference,
             'uri_dir_fake_relative'  => evade_uri_dir_fake_relative,
             'uri_use_backslashes'    => evade_uri_use_backslashes,
@@ -269,6 +385,8 @@ module Metasploit
             'pad_get_params_count'   => evade_pad_get_params_count,
             'pad_post_params'        => evade_pad_post_params,
             'pad_post_params_count'  => evade_pad_post_params_count,
+            'shuffle_get_params'     => evade_shuffle_get_params,
+            'shuffle_post_params'    => evade_shuffle_post_params,
             'uri_fake_end'           => evade_uri_fake_end,
             'uri_fake_params_start'  => evade_uri_fake_params_start,
             'header_folding'         => evade_header_folding,
@@ -297,6 +415,7 @@ module Metasploit
           self.connection_timeout ||= 20
           self.uri = '/' if self.uri.blank?
           self.method = 'GET' if self.method.blank?
+          self.http_success_codes = DEFAULT_HTTP_SUCCESS_CODES if self.http_success_codes.nil?
 
           # Note that this doesn't cover the case where ssl is unset and
           # port is something other than a default. In that situtation,
@@ -322,13 +441,23 @@ module Metasploit
 
         # Combine the base URI with the target URI in a sane fashion
         #
-        # @param [String] The target URL
+        # @param [String] target_uri the target URL
         # @return [String] the final URL mapped against the base
         def normalize_uri(target_uri)
           (self.uri.to_s + "/" + target_uri.to_s).gsub(/\/+/, '/')
         end
 
+        private
+
+        def validate_http_codes
+          errors.add(:http_success_codes, "HTTP codes must be an Array") unless @http_success_codes.is_a?(Array)
+          @http_success_codes.each do |code|
+            next if code >= 200 && code < 400
+            errors.add(:http_success_codes, "Invalid HTTP code provided #{code}")
+          end
+        end
       end
     end
   end
 end
+
