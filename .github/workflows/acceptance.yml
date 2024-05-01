@@ -91,7 +91,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get -y --no-install-recommends install libpcap-dev graphviz
 
-      - uses: shivammathur/setup-php@5b29e8a45433c406b3902dff138a820a408c45b7
+      - uses: shivammathur/setup-php@868f02c3ff1a410930ea971284c9ea175e986284
         if: ${{ matrix.meterpreter.name == 'php' }}
         with:
           php-version: ${{ matrix.meterpreter.runtime_version }}
